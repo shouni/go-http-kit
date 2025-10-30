@@ -18,7 +18,7 @@ import (
 // retryableHTTPError は、ステータスコードによってリトライが望ましいことを示すエラーです。
 type retryableHTTPError struct {
 	StatusCode int
-	Err        error // 元のエラー（ステータスコードエラーなど）をラップ
+	Err        error
 }
 
 func (e *retryableHTTPError) Error() string {
@@ -106,11 +106,10 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			// リトライをトリガーするカスタムエラーを返す。ステータスコードエラーをラップ。
 			return &retryableHTTPError{
 				StatusCode: resp.StatusCode,
-				Err:        fmt.Errorf("HTTP status code %d", resp.StatusCode),
+				Err:        nil,
 			}
 		}
 
-		// 成功、またはリトライ対象外のエラー (例: 400, 404)
 		return nil
 	}
 
