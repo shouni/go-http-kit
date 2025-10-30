@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"time"
 
-	// go-utils/retry パッケージに依存
 	"github.com/shouni/go-utils/retry"
 )
 
@@ -140,7 +139,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	// retry.Do を実行
-	opName := fmt.Sprintf("HTTPリクエスト (%s %s)", req.Method, req.URL.Host)
+	opName := fmt.Sprintf("HTTPリクエスト (%s %s%s)", req.Method, req.URL.Host, req.URL.Path)
 	err := retry.Do(req.Context(), c.retryConfig, opName, op, shouldRetryFn)
 
 	if err != nil {
