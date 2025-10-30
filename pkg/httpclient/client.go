@@ -119,7 +119,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var urlErr *url.Error
 
 		// errors.Is で単純なエラーをチェック
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.DeadlineExceeded) {
 			return true
 		}
 
