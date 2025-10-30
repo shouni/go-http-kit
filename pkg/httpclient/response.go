@@ -9,7 +9,7 @@ import (
 )
 
 // DefaultMaxResponseBodySize は、レスポンスボディの最大許容サイズです。
-var DefaultMaxResponseBodySize = 200 * 1024 * 1024 // 1000MB
+var DefaultMaxResponseBodySize = 1000 * 1024 * 1024 // 1000MB
 
 // init は、環境変数から最大ボディサイズを設定できるようにします。
 func init() {
