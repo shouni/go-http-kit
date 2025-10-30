@@ -6,16 +6,25 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time" // log.Printf の代わりに fmt.Printf を使用するが、時間情報付きの出力のためにインポートを保持
 )
 
 // DefaultMaxResponseBodySize は、レスポンスボディの最大許容サイズです。
-var DefaultMaxResponseBodySize = 1000 * 1024 * 1024 // 1000MB
+// アプリケーションの一般的なユースケースを考慮し、デフォルトを 10MB に設定します。
+var DefaultMaxResponseBodySize = 10 * 1024 * 1024 // 10MB
 
 // init は、環境変数から最大ボディサイズを設定できるようにします。
 func init() {
 	if s := os.Getenv("MAX_RESPONSE_BODY_SIZE"); s != "" {
 		if size, err := strconv.Atoi(s); err == nil {
-			DefaultMaxResponseBodySize = size
+			if size > 0 {
+				DefaultMaxResponseBodySize = size
+			} else {
+				fmt.Printf("WARN: [%s] 環境変数 MAX_RESPONSE_BODY_SIZE (%s) が無効な値です。正の整数を設定してください。デフォルト値 (%dバイト) を使用します。\n", time.Now().Format(time.RFC3339), s, DefaultMaxResponseBodySize)
+			}
+		} else {
+			// エラーをログに出力する
+			fmt.Printf("WARN: [%s] 環境変数 MAX_RESPONSE_BODY_SIZE のパースに失敗しました: %v. デフォルト値 (%dバイト) を使用します。\n", time.Now().Format(time.RFC3339), err, DefaultMaxResponseBodySize)
 		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,8 +12,32 @@ import (
 	"github.com/shouni/go-utils/retry"
 )
 
+// ----------------------------------------------------------------------
+// カスタムエラー定義
+// ----------------------------------------------------------------------
+
+// retryableHTTPError は、ステータスコードによってリトライが望ましいことを示すエラーです。
+type retryableHTTPError struct {
+	StatusCode int
+	Err        error // 元のエラーをラップするため
+}
+
+func (e *retryableHTTPError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("リトライ対象のステータスコード: %d, 元エラー: %v", e.StatusCode, e.Err)
+	}
+	return fmt.Sprintf("リトライ対象のステータスコード: %d", e.StatusCode)
+}
+
+func (e *retryableHTTPError) Unwrap() error {
+	return e.Err
+}
+
+// ----------------------------------------------------------------------
+// HTTPClient インターフェースと Client 構造体
+// ----------------------------------------------------------------------
+
 // HTTPClient は、標準の *http.Client.Do() と互換性のあるインターフェースです。
-// リトライや共通処理を含むクライアントとして振る舞います。
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -24,10 +47,10 @@ type Config struct {
 	// Timeout はベースとなる http.Client のリクエストタイムアウトです。
 	Timeout time.Duration
 
-	// リトライ関連の設定（go-utils/retry.Config と一致させる）
-	MaxRetries   uint64
-	InitialDelay time.Duration
-	MaxDelay     time.Duration
+	// リトライ関連の設定（go-utils/retry.Config にフィールド名を統一）
+	MaxRetries      uint64
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
 }
 
 // Client はHTTPClientインターフェースの実装であり、リトライを管理します。
@@ -43,22 +66,11 @@ func NewClient(cfg Config) *Client {
 		Timeout: cfg.Timeout,
 	}
 
-	// 2. リトライ設定を構築
+	// 2. リトライ設定を構築 (ゼロ値は retry パッケージ側で処理されることを期待)
 	retryCfg := retry.Config{
 		MaxRetries:      cfg.MaxRetries,
-		InitialInterval: cfg.InitialDelay,
-		MaxInterval:     cfg.MaxDelay,
-	}
-
-	// デフォルト値の適用
-	if retryCfg.MaxRetries == 0 {
-		retryCfg.MaxRetries = retry.DefaultMaxRetries
-	}
-	if retryCfg.InitialInterval == 0 {
-		retryCfg.InitialInterval = retry.InitialBackoffInterval
-	}
-	if retryCfg.MaxInterval == 0 {
-		retryCfg.MaxInterval = retry.MaxBackoffInterval
+		InitialInterval: cfg.InitialInterval,
+		MaxInterval:     cfg.MaxInterval,
 	}
 
 	return &Client{
@@ -80,7 +92,8 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		}
 
 		// 1. ベースクライアントでリクエストを実行
-		r, err := c.baseClient.Do(req.WithContext(req.Context()))
+		// req は既にコンテキストを持っているため、そのまま渡す
+		r, err := c.baseClient.Do(req)
 
 		// エラーまたはレスポンスを保持
 		resp = r
@@ -90,10 +103,10 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			return err
 		}
 
-		// ステータスコードがリトライ対象 (429, 5xx) であれば、エラーを返してリトライを促す
+		// ステータスコードがリトライ対象 (429, 5xx) であれば、カスタムエラーを返す
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			// リトライをトリガーするエラーを返す
-			return fmt.Errorf("リトライ対象のステータスコード: %d", resp.StatusCode)
+			// リトライをトリガーするカスタムエラーを返す
+			return &retryableHTTPError{StatusCode: resp.StatusCode}
 		}
 
 		// 成功、またはリトライ対象外のエラー (例: 400, 404)
@@ -106,7 +119,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var urlErr *url.Error
 
 		// errors.Is で単純なエラーをチェック
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return true
 		}
 
@@ -116,9 +129,9 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			return true
 		}
 
-		// 2. リトライ対象のステータスコードが原因のエラーもリトライ
-		// (opでリトライを促すために返されたエラー)
-		if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
+		// 2. カスタムエラー (リトライ対象のステータスコード) はリトライ
+		var rErr *retryableHTTPError
+		if errors.As(err, &rErr) {
 			return true
 		}
 
