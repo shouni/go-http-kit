@@ -105,7 +105,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		// ステータスコードがリトライ対象 (429, 5xx) であれば、カスタムエラーを返す
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			// リトライをトリガーするカスタムエラーを返す
-			return &retryableHTTPError{StatusCode: resp.StatusCode}
+			return &retryableHTTPError{StatusCode: resp.StatusCode, Err: err} // err は baseClient.Do() から返されたエラー
 		}
 
 		// 成功、またはリトライ対象外のエラー (例: 400, 404)
@@ -118,7 +118,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var urlErr *url.Error
 
 		// errors.Is で単純なエラーをチェック
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.DeadlineExceeded) {
 			return true
 		}
 
