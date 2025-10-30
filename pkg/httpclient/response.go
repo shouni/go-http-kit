@@ -3,28 +3,29 @@ package httpclient
 import (
 	"fmt"
 	"io"
-	"log"
+	"log" // log パッケージを追加
 	"net/http"
 	"os"
 	"strconv"
 )
 
 // DefaultMaxResponseBodySize は、レスポンスボディの最大許容サイズです。
-// アプリケーションの一般的なユースケースを考慮し、デフォルトを 100MB に設定します。
-var DefaultMaxResponseBodySize = 100 * 1024 * 1024 // 100MB
+// アプリケーションの一般的なユースケースを考慮し、デフォルトを 10MB に設定します。
+var DefaultMaxResponseBodySize = 10 * 1024 * 1024 // 10MB
 
 // init は、環境変数から最大ボディサイズを設定できるようにします。
 func init() {
+	// 標準の log パッケージを使用するため、time パッケージのインポートは不要
+
 	if s := os.Getenv("MAX_RESPONSE_BODY_SIZE"); s != "" {
 		if size, err := strconv.Atoi(s); err == nil {
 			if size > 0 {
 				DefaultMaxResponseBodySize = size
-			} else {
-				// fmt.Printf("WARN: [%s] 環境変数 MAX_RESPONSE_BODY_SIZE (%s) が無効な値です。正の整数を設定してください。デフォルト値 (%dバイト) を使用します。\n", time.Now().Format(time.RFC3339), s, DefaultMaxResponseBodySize)
+			} else { // size <= 0 の場合
 				log.Printf("WARN: 環境変数 MAX_RESPONSE_BODY_SIZE (%s) が無効な値です。正の整数を設定してください。デフォルト値 (%dバイト) を使用します。", s, DefaultMaxResponseBodySize)
 			}
 		} else {
-			// fmt.Printf("WARN: [%s] 環境変数 MAX_RESPONSE_BODY_SIZE のパースに失敗しました: %v. デフォルト値 (%dバイト) を使用します。\n", time.Now().Format(time.RFC3339), err, DefaultMaxResponseBodySize)
+			// 環境変数のパース失敗時
 			log.Printf("WARN: 環境変数 MAX_RESPONSE_BODY_SIZE のパースに失敗しました: %v. デフォルト値 (%dバイト) を使用します。", err, DefaultMaxResponseBodySize)
 		}
 	}

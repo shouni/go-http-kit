@@ -18,7 +18,7 @@ import (
 // retryableHTTPError は、ステータスコードによってリトライが望ましいことを示すエラーです。
 type retryableHTTPError struct {
 	StatusCode int
-	Err        error // 元のエラーをラップするため
+	Err        error // 元のエラー（ステータスコードエラーなど）をラップ
 }
 
 func (e *retryableHTTPError) Error() string {
@@ -91,7 +91,6 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		}
 
 		// 1. ベースクライアントでリクエストを実行
-		// req は既にコンテキストを持っているため、そのまま渡す
 		r, err := c.baseClient.Do(req)
 
 		// エラーまたはレスポンスを保持
@@ -104,8 +103,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 		// ステータスコードがリトライ対象 (429, 5xx) であれば、カスタムエラーを返す
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			// リトライをトリガーするカスタムエラーを返す
-			return &retryableHTTPError{StatusCode: resp.StatusCode, Err: err} // err は baseClient.Do() から返されたエラー
+			// リトライをトリガーするカスタムエラーを返す。ステータスコードエラーをラップ。
+			return &retryableHTTPError{
+				StatusCode: resp.StatusCode,
+				Err:        fmt.Errorf("HTTP status code %d", resp.StatusCode),
+			}
 		}
 
 		// 成功、またはリトライ対象外のエラー (例: 400, 404)
@@ -118,14 +120,18 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var urlErr *url.Error
 
 		// errors.Is で単純なエラーをチェック
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return true
 		}
 
 		// errors.As で *url.Error 型の変換可能なエラーをチェック
 		if errors.As(err, &urlErr) {
-			// URLエラーに含まれるタイムアウトもリトライ対象
-			return true
+			// URLエラーのうち、タイムアウトまたは一時的なエラーのみをリトライ対象とする
+			if urlErr.Timeout() || urlErr.Temporary() {
+				return true
+			}
+			// その他の url.Error はリトライしない (例: URLパースエラー)
+			return false
 		}
 
 		// 2. カスタムエラー (リトライ対象のステータスコード) はリトライ
@@ -139,7 +145,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	// retry.Do を実行
-	opName := fmt.Sprintf("HTTPリクエスト (%s %s%s)", req.Method, req.URL.Host, req.URL.Path)
+	opName := fmt.Sprintf("HTTPリクエスト (%s %s)", req.Method, req.URL.Host)
 	err := retry.Do(req.Context(), c.retryConfig, opName, op, shouldRetryFn)
 
 	if err != nil {
