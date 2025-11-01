@@ -15,7 +15,7 @@ import (
 type Client struct {
 	// Doer は interface.go で定義
 	httpClient  Doer
-	retryConfig retry.Config
+	RetryConfig retry.Config
 }
 
 // ClientOption はClientの設定を行うための関数型です。
@@ -31,21 +31,21 @@ func WithHTTPClient(client Doer) ClientOption {
 // WithMaxRetries は最大リトライ回数を設定します。
 func WithMaxRetries(max uint64) ClientOption {
 	return func(c *Client) {
-		c.retryConfig.MaxRetries = max
+		c.RetryConfig.MaxRetries = max
 	}
 }
 
 // WithInitialInterval はリトライの初期間隔を設定します。
 func WithInitialInterval(d time.Duration) ClientOption {
 	return func(c *Client) {
-		c.retryConfig.InitialInterval = d
+		c.RetryConfig.InitialInterval = d
 	}
 }
 
 // WithMaxInterval はリトライの最大間隔を設定します。
 func WithMaxInterval(d time.Duration) ClientOption {
 	return func(c *Client) {
-		c.retryConfig.MaxInterval = d
+		c.RetryConfig.MaxInterval = d
 	}
 }
 
@@ -60,7 +60,7 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		retryConfig: retry.DefaultConfig(),
+		RetryConfig: retry.DefaultConfig(),
 	}
 
 	// 2. オプションで設定を上書き（MaxRetries, InitialInterval, MaxIntervalなど）
