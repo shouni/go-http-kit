@@ -48,14 +48,14 @@ import (
 )
 
 func main() {
-    // 1. リトライ機能付きクライアントの初期化
-    // New(タイムアウト, オプション...)
-    client := httpkit.New(
-        15*time.Second,
-        httpkit.WithMaxRetries(5),            // 最大リトライ回数
-        httpkit.WithInitialInterval(1*time.Second), // 初回リトライ遅延
-        httpkit.WithMaxInterval(30*time.Second),    // 最大リトライ遅延
-    )
+	// 1. リトライ機能付きクライアントの初期化
+	// New(http.Clientのタイムアウト, オプション...)
+	client := httpkit.New(
+		15*time.Second, // 各HTTPリクエストのタイムアウト
+		httpkit.WithMaxRetries(5),            // 最大リトライ回数
+		httpkit.WithInitialInterval(1*time.Second), // 初回リトライ遅延
+		httpkit.WithMaxInterval(30*time.Second),    // 最大リトライ遅延
+	)
     
     // 2. 標準の http.Client.Do() と同じ方法でリクエストを実行
     req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.com/data", nil)
