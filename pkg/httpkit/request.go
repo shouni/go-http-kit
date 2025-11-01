@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -40,10 +39,6 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 // 成功したレスポンスボディをバイト配列として返します。
 // これが、すべての高レベルなリクエストメソッドの基盤となります。
 func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
-	if req.Context() == nil {
-		return nil, errors.New("リクエストにコンテキストが設定されていません")
-	}
-
 	var body []byte
 	// デバッグの際に役立つように、完全なURLを操作名に使用します。
 	operationName := req.Method + " " + req.URL.String()
