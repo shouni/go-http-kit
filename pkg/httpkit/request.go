@@ -12,10 +12,29 @@ import (
 )
 
 // ----------------------------------------------------------------------
-// リクエスト実行ロジック
+// 1. 低レベルなヘルパーメソッド (非公開ロジック)
 // ----------------------------------------------------------------------
 
-// package httpkit
+// doWithRetry は リトライロジックを実行します。
+// [doWithRetry は DoRequest の基盤となるため、先に配置]
+func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
+	return retry.Do(
+		ctx,
+		c.RetryConfig,
+		operationName,
+		op,
+		c.IsHTTPRetryableError,
+	)
+}
+
+// addCommonHeaders は共通のHTTPヘッダーを設定します。
+func (c *Client) addCommonHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", UserAgent)
+}
+
+// ----------------------------------------------------------------------
+// 2. コアロジックメソッド (DoRequest)
+// ----------------------------------------------------------------------
 
 // DoRequest は、構築済みの *http.Request を受け取り、リトライ処理を実行し、
 // 成功したレスポンスボディをバイト配列として返します。
@@ -35,14 +54,12 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 		// c.Do は c.httpClient.Do のラッパーであり、外部 Doer インターフェースを満たす
 		resp, err := c.Do(req)
 		if err != nil {
-			// ネットワークエラー、タイムアウト、コンテキストキャンセルなどはここで捕捉され、
-			// c.IsHTTPRetryableError によってリトライ判定される
+			// ネットワークエラー、タイムアウト、コンテキストキャンセルなどで発生
 			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", req.URL.String(), err)
 		}
 
 		// 2. レスポンス処理
-		// HandleResponse はステータスコードエラー、ボディサイズチェックを実行し、
-		// 5xxエラーをリトライ可能なエラーとして返却する
+		// HandleResponse がエラー処理とサイズチェックを行う
 		body, err = HandleResponse(resp)
 		return err
 	}
@@ -57,20 +74,22 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+// ----------------------------------------------------------------------
+// 3. 高レベルな API メソッド (ユースケース特化)
+// ----------------------------------------------------------------------
+
 // FetchBytes は指定されたURLにGETリクエストを送信し、レスポンスボディをバイト配列として返します。
-// リトライ処理、ステータスコードエラー処理、ボディサイズチェックを含みます。
 func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		// リクエスト作成エラーは既にここでラップされているため、そのまま返す
 		return nil, fmt.Errorf("HTTP GETリクエストの作成に失敗しました (URL: %s): %w", url, err)
 	}
 	c.addCommonHeaders(req)
 
 	body, err := c.DoRequest(req)
 	if err != nil {
-		// DoRequest実行エラーであることを明示的にラップ
-		return nil, fmt.Errorf("GETリクエストの実行に失敗しました (URL: %s): %w", url, err) // <-- 修正
+		// DoRequest実行エラーであることを明示的にラップし、コンテキストを付与
+		return nil, fmt.Errorf("GETリクエストの実行に失敗しました (URL: %s): %w", url, err)
 	}
 	return body, nil
 }
@@ -91,17 +110,16 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 
 	body, err := c.DoRequest(req)
 	if err != nil {
-		// DoRequest実行エラーであることを明示的にラップ
-		return nil, fmt.Errorf("POSTリクエストの実行に失敗しました (URL: %s): %w", url, err) // <-- 修正
+		// DoRequest実行エラーであることを明示的にラップし、コンテキストを付与
+		return nil, fmt.Errorf("POSTリクエストの実行に失敗しました (URL: %s): %w", url, err)
 	}
 	return body, nil
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
 // レスポンスボディをJSONとして読み込み、指定された構造体 v にデコードします。
-// リトライ処理を含みます。
 func (c *Client) FetchAndDecodeJSON(url string, ctx context.Context, v any) error {
-	// 1. FetchBytes (DoRequest) を使用してバイト配列を取得
+	// 1. FetchBytes (DoRequest を経由) を使用してバイト配列を取得
 	bodyBytes, err := c.FetchBytes(url, ctx)
 	if err != nil {
 		// HTTP/リトライエラーの場合
@@ -115,53 +133,4 @@ func (c *Client) FetchAndDecodeJSON(url string, ctx context.Context, v any) erro
 	}
 
 	return nil
-}
-
-// doWithRetry は リトライロジックを実行します。
-func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
-	return retry.Do(
-		ctx,
-		c.RetryConfig,
-		operationName,
-		op,
-		c.IsHTTPRetryableError,
-	)
-}
-
-// addCommonHeaders は共通のHTTPヘッダーを設定します。
-func (c *Client) addCommonHeaders(req *http.Request) {
-	req.Header.Set("User-Agent", UserAgent)
-}
-
-// doFetchBytes は実際の一度のHTTP GETリクエストを実行し、レスポンスボディを返します。
-func (c *Client) doFetchBytes(url string, ctx context.Context) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP GETリクエストの作成に失敗しました (URL: %s): %w", url, err)
-	}
-
-	c.addCommonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("URL %s へのHTTPリクエストに失敗しました (ネットワーク/接続エラー): %w", url, err)
-	}
-
-	return HandleResponse(resp)
-}
-
-// doPostJSON は実際の一度のHTTP POSTリクエストを実行し、レスポンスボディを返します。
-func (c *Client) doPostJSON(url string, requestBody []byte, ctx context.Context) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました: %w", err)
-	}
-	c.addCommonHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("URL %s へのHTTP POSTリクエストに失敗しました (ネットワーク/接続エラー): %w", url, err)
-	}
-
-	return HandleResponse(resp)
 }
