@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -20,38 +21,58 @@ import (
 // 成功したレスポンスボディをバイト配列として返します。
 // これが、すべての高レベルなリクエストメソッドの基盤となります。
 func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
-	var body []byte
-	operationName := req.Method + " " + req.URL.Path
+	if req.Context() == nil {
+		return nil, errors.New("リクエストにコンテキストが設定されていません")
+	}
 
+	var body []byte
+	// デバッグの際に役立つように、完全なURLを操作名に使用します。
+	operationName := req.Method + " " + req.URL.String()
+
+	// リトライ処理を実行する操作 (op) を定義
 	op := func() error {
 		// 1. リクエスト実行
-		resp, err := c.Do(req) // c.Do は c.httpClient.Do のラッパー
+		// c.Do は c.httpClient.Do のラッパーであり、外部 Doer インターフェースを満たす
+		resp, err := c.Do(req)
 		if err != nil {
+			// ネットワークエラー、タイムアウト、コンテキストキャンセルなどはここで捕捉され、
+			// c.IsHTTPRetryableError によってリトライ判定される
 			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", req.URL.String(), err)
 		}
 
 		// 2. レスポンス処理
-		// HandleResponse はステータスコードエラー、サイズチェックを実行
+		// HandleResponse はステータスコードエラー、ボディサイズチェックを実行し、
+		// 5xxエラーをリトライ可能なエラーとして返却する
 		body, err = HandleResponse(resp)
 		return err
 	}
 
+	// doWithRetry が指数バックオフとリトライ判定ロジックを管理する
 	if err := c.doWithRetry(req.Context(), operationName, op); err != nil {
+		// 全リトライ試行後も失敗した場合、最終的なエラーを返却
 		return nil, err
 	}
 
+	// リトライ処理が成功した場合、最終的なレスポンスボディを返却
 	return body, nil
 }
 
-// FetchBytes は指定されたURLからリトライ付きでコンテンツをフェッチし、生のバイト配列として返します。
+// FetchBytes は指定されたURLにGETリクエストを送信し、レスポンスボディをバイト配列として返します。
+// リトライ処理、ステータスコードエラー処理、ボディサイズチェックを含みます。
 func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		// リクエスト作成エラーは既にここでラップされているため、そのまま返す
 		return nil, fmt.Errorf("HTTP GETリクエストの作成に失敗しました (URL: %s): %w", url, err)
 	}
 	c.addCommonHeaders(req)
 
-	return c.DoRequest(req) // DoRequest がリトライとエラー処理を担当
+	body, err := c.DoRequest(req)
+	if err != nil {
+		// DoRequest実行エラーであることを明示的にラップ
+		return nil, fmt.Errorf("GETリクエストの実行に失敗しました (URL: %s): %w", url, err) // <-- 修正
+	}
+	return body, nil
 }
 
 // PostJSONAndFetchBytes は指定されたデータをJSONとしてPOSTし、レスポンスボディをバイト配列として返します。
@@ -68,7 +89,12 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 	c.addCommonHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
-	return c.DoRequest(req) // DoRequest がリトライとエラー処理を担当
+	body, err := c.DoRequest(req)
+	if err != nil {
+		// DoRequest実行エラーであることを明示的にラップ
+		return nil, fmt.Errorf("POSTリクエストの実行に失敗しました (URL: %s): %w", url, err) // <-- 修正
+	}
+	return body, nil
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
