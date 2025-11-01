@@ -13,6 +13,8 @@
     * 外部の `go-utils/retry` パッケージと連携し、**指数バックオフ**を用いた高度なリトライ戦略を自動適用します。
     * **ネットワークエラー**、**タイムアウトエラー**、および **HTTP 5xx (Server Error)** のみを自動でリトライ対象とし、4xx系のクライアントエラーはリトライしません。
     * `ClientOption`を通じて、**最大リトライ回数**、**初回遅延**、**最大遅延**などのリトライポリシーを細かく制御できます。
+* **強力なリクエスト実行コア** ✨
+    * **`DoRequest(req *http.Request)`** メソッドをコアとし、すべてのリクエスト（GET/POST/PUTなど）に対して統一的にリトライとエラー処理を適用します。
 * **クリーンなインターフェース**
     * 標準の `*http.Client.Do()` と互換性のある **`httpkit.Doer` インターフェース**を提供し、既存コードからの置き換えが容易です。
     * コンテンツ抽出などで利用される **`httpkit.Fetcher` インターフェース**を満たしています。
@@ -40,48 +42,72 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "net/http"
     "time"
 
-    "github.com/shouni/go-http-kit/pkg/httpkit" // パッケージ名は httpkit
+    "github.com/shouni/go-http-kit/pkg/httpkit"
 )
 
+// APIから取得するデータ構造を定義
+type ExampleResponse struct {
+    Status string `json:"status"`
+    Data   struct {
+        Message string `json:"message"`
+    } `json:"data"`
+}
+
 func main() {
-	// 1. リトライ機能付きクライアントの初期化
-	// New(http.Clientのタイムアウト, オプション...)
-	client := httpkit.New(
-		15*time.Second, // 各HTTPリクエストのタイムアウト
-		httpkit.WithMaxRetries(5),            // 最大リトライ回数
-		httpkit.WithInitialInterval(1*time.Second), // 初回リトライ遅延
-		httpkit.WithMaxInterval(30*time.Second),    // 最大リトライ遅延
-	)
+    ctx := context.Background()
     
-    // 2. 標準の http.Client.Do() と同じ方法でリクエストを実行
-    req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.com/data", nil)
-    if err != nil {
-       // ...
-    }
+    // 1. リトライ機能付きクライアントの初期化
+    client := httpkit.New(
+       15*time.Second,
+       httpkit.WithMaxRetries(5),
+       httpkit.WithInitialInterval(1*time.Second),
+    )
+    
+    // 2. 標準の http.Client.Do() と同じ方法でリクエストを実行 (低レベル)
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/status", nil)
 
     resp, err := client.Do(req)
     if err != nil {
-       // リトライ失敗時のエラー処理
-       // err が *httpkit.NonRetryableHTTPError であれば、4xx系のクライアントエラー
-       fmt.Printf("リクエスト失敗 (リトライ後): %v\n", err)
+       fmt.Printf("Do失敗 (リトライ後): %v\n", err)
+       // ... エラー判定
        return
     }
     defer resp.Body.Close()
 
     fmt.Printf("成功: ステータスコード %d\n", resp.StatusCode)
     
-    // 3. (代替手段) Fetcherインターフェースを利用したバイト配列取得
-    // リトライとヘッダー設定、レスポンス処理はすべて内部で完結します。
-    bodyBytes, fetchErr := client.FetchBytes("https://api.example.com/data", context.Background())
+    // ----- 高レベルな便利メソッドの使用例 -----
+
+    // 3. (代替手段) FetchBytes でバイト配列を取得 (リトライ、ヘッダー設定、エラー処理完結)
+    bodyBytes, fetchErr := client.FetchBytes("https://api.example.com/data", ctx)
     if fetchErr != nil {
         fmt.Printf("FetchBytes 失敗: %v\n", fetchErr)
         return
     }
     fmt.Printf("ボディサイズ: %dバイト\n", len(bodyBytes))
+
+    // 4. (推奨) FetchAndDecodeJSON で取得とJSONデコードを同時に実行
+    var result ExampleResponse
+    decodeErr := client.FetchAndDecodeJSON("https://api.example.com/status", ctx, &result)
+    if decodeErr != nil {
+        fmt.Printf("JSONデコード失敗: %v\n", decodeErr)
+        return
+    }
+    fmt.Printf("デコード成功: Status = %s, Message = %s\n", result.Status, result.Data.Message)
+
+    // 5. POSTリクエストとJSONデータの送信
+    postData := map[string]string{"key": "value"}
+    postBytes, postErr := client.PostJSONAndFetchBytes("https://api.example.com/submit", postData, ctx)
+    if postErr != nil {
+        fmt.Printf("POST失敗: %v\n", postErr)
+        return
+    }
+    fmt.Printf("POSTレスポンス: %s\n", postBytes)
 }
 ```
 
@@ -97,8 +123,8 @@ func main() {
 | `pkg/httpkit/const.go` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
 | `pkg/httpkit/error.go` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
 | `pkg/httpkit/client.go` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
-| `pkg/httpkit/request.go` | **リトライ** (`doWithRetry`) および具体的なリクエスト実行メソッド (`FetchBytes`, `PostJSONAndFetchBytes`など)。 |
-| `pkg/httpkit/response.go` | **レスポンス処理** (`handleResponse`)、サイズ制限の適用、リトライ判定ロジック (`isHTTPRetryableError`)。 |
+| `pkg/httpkit/request.go` | **リトライ実行コア** (`DoRequest`)、および高レベルなAPI (`FetchBytes`, `FetchAndDecodeJSON`など)。 |
+| `pkg/httpkit/response.go` | **レスポンス処理** (`HandleResponse`)、サイズ制限の適用、リトライ判定ロジック。 |
 
 ### 依存関係
 
