@@ -14,26 +14,44 @@ import (
 // リクエスト実行ロジック
 // ----------------------------------------------------------------------
 
-// FetchBytes は指定されたURLからリトライ付きでコンテンツをフェッチし、生のバイト配列として返します。
-// extract.Fetcher インターフェースを満たすためのメソッドです。
-func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
-	var bodyBytes []byte
+// package httpkit
+
+// DoRequest は、構築済みの *http.Request を受け取り、リトライ処理を実行し、
+// 成功したレスポンスボディをバイト配列として返します。
+// これが、すべての高レベルなリクエストメソッドの基盤となります。
+func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
+	var body []byte
+	operationName := req.Method + " " + req.URL.Path
+
 	op := func() error {
-		var fetchErr error
-		// 実際のリクエスト処理
-		bodyBytes, fetchErr = c.doFetchBytes(url, ctx)
-		return fetchErr
+		// 1. リクエスト実行
+		resp, err := c.Do(req) // c.Do は c.httpClient.Do のラッパー
+		if err != nil {
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", req.URL.String(), err)
+		}
+
+		// 2. レスポンス処理
+		// HandleResponse はステータスコードエラー、サイズチェックを実行
+		body, err = HandleResponse(resp)
+		return err
 	}
 
-	err := c.doWithRetry(
-		ctx,
-		fmt.Sprintf("URL(%s)のフェッチ", url),
-		op,
-	)
-	if err != nil {
+	if err := c.doWithRetry(req.Context(), operationName, op); err != nil {
 		return nil, err
 	}
-	return bodyBytes, nil
+
+	return body, nil
+}
+
+// FetchBytes は指定されたURLからリトライ付きでコンテンツをフェッチし、生のバイト配列として返します。
+func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP GETリクエストの作成に失敗しました (URL: %s): %w", url, err)
+	}
+	c.addCommonHeaders(req)
+
+	return c.DoRequest(req) // DoRequest がリトライとエラー処理を担当
 }
 
 // PostJSONAndFetchBytes は指定されたデータをJSONとしてPOSTし、レスポンスボディをバイト配列として返します。
@@ -42,24 +60,35 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
-	var bodyBytes []byte
 
-	op := func() error {
-		var postErr error
-		// 実際のリクエスト処理
-		bodyBytes, postErr = c.doPostJSON(url, requestBody, ctx)
-		return postErr
-	}
-
-	err = c.doWithRetry(
-		ctx,
-		fmt.Sprintf("URL(%s)へのPOSTリクエスト", url),
-		op,
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました: %w", err)
 	}
-	return bodyBytes, nil
+	c.addCommonHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	return c.DoRequest(req) // DoRequest がリトライとエラー処理を担当
+}
+
+// FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
+// レスポンスボディをJSONとして読み込み、指定された構造体 v にデコードします。
+// リトライ処理を含みます。
+func (c *Client) FetchAndDecodeJSON(url string, ctx context.Context, v any) error {
+	// 1. FetchBytes (DoRequest) を使用してバイト配列を取得
+	bodyBytes, err := c.FetchBytes(url, ctx)
+	if err != nil {
+		// HTTP/リトライエラーの場合
+		return err
+	}
+
+	// 2. JSONデコード
+	if err := json.Unmarshal(bodyBytes, v); err != nil {
+		// JSONパースエラーの場合
+		return fmt.Errorf("JSONデコードに失敗しました: %w", err)
+	}
+
+	return nil
 }
 
 // doWithRetry は リトライロジックを実行します。
