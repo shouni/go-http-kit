@@ -81,12 +81,7 @@ func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
 	}
 	c.addCommonHeaders(req)
 
-	body, err := c.DoRequest(req)
-	if err != nil {
-		// DoRequest実行エラーであることを明示的にラップし、コンテキストを付与
-		return nil, fmt.Errorf("GETリクエストの実行に失敗しました (URL: %s): %w", url, err)
-	}
-	return body, nil
+	return c.DoRequest(req)
 }
 
 // PostJSONAndFetchBytes は指定されたデータをJSONとしてPOSTし、レスポンスボディをバイト配列として返します。
@@ -103,12 +98,7 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 	c.addCommonHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
-	body, err := c.DoRequest(req)
-	if err != nil {
-		// DoRequest実行エラーであることを明示的にラップし、コンテキストを付与
-		return nil, fmt.Errorf("POSTリクエストの実行に失敗しました (URL: %s): %w", url, err)
-	}
-	return body, nil
+	return c.DoRequest(req)
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
