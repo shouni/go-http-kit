@@ -54,9 +54,9 @@ func HandleResponse(resp *http.Response) ([]byte, error) {
 	}
 }
 
-// isHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
+// IsHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
 // この関数は go-utils.ShouldRetryFunc 型のシグネチャを満たします。
-func (c *Client) isHTTPRetryableError(err error) bool {
+func (c *Client) IsHTTPRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}

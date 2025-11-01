@@ -66,10 +66,10 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
 	return retry.Do(
 		ctx,
-		c.retryConfig,
+		c.RetryConfig,
 		operationName,
 		op,
-		c.isHTTPRetryableError,
+		c.IsHTTPRetryableError,
 	)
 }
 
