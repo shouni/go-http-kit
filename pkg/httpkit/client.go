@@ -72,6 +72,7 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 }
 
 // Do は Doer インターフェースが持つ Do メソッドを呼び出すラッパーです。
+// Client インスタンス自体を Doer として利用したい場合にこのメソッドが役立ちます。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
