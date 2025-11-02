@@ -106,16 +106,7 @@ func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
 
-	// 新しい PostRawBodyAndFetchBytes を利用して実装を簡潔化することも可能だが、
-	// ここでは元の構造を維持しつつ Content-Type をハードコード
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました: %w", err)
-	}
-	c.addCommonHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-
-	return c.DoRequest(req)
+	return c.PostRawBodyAndFetchBytes(url, requestBody, "application/json", ctx)
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
