@@ -18,6 +18,8 @@
 * **クリーンなインターフェース**
     * 標準の `*http.Client.Do()` と互換性のある **`httpkit.Doer` インターフェース**を提供し、既存コードからの置き換えが容易です。
     * コンテンツ抽出などで利用される **`httpkit.Fetcher` インターフェース**を満たしています。
+* **汎用的なPOSTメソッド**
+    * `PostRawBodyAndFetchBytes` メソッドにより、生のバイト配列と任意の `Content-Type` を指定して $\text{POST}$ リクエストを実行できます。これにより、JSON以外のデータ形式（例: $\text{XML}$, $\text{WAV}$ など）の送受信に柔軟に対応します。
 * **レスポンスボディサイズ制限の厳格化**
     * `MaxResponseBodySize`（デフォルト **25MB**）を超えるレスポンスボディの読み込みを**厳格に検出し**、メモリ枯渇を防ぎます。`io.LimitReader`と読み込み後のサイズチェックにより、`Content-Length`ヘッダーに依存しない確実な制限を保証します。
 * **接続リーク防止**
@@ -108,6 +110,15 @@ func main() {
         return
     }
     fmt.Printf("POSTレスポンス: %s\n", postBytes)
+
+    // 6. RAWデータ (例: XMLやカスタム形式) のPOST
+    rawBody := []byte("<data>raw_content</data>")
+    rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes("https://api.example.com/upload", rawBody, "application/xml", ctx)
+    if rawPostErr != nil {
+        fmt.Printf("Raw POST失敗: %v\n", rawPostErr)
+        return
+    }
+    fmt.Printf("Raw POSTレスポンス: %s\n", rawPostBytes)
 }
 ```
 
@@ -123,7 +134,7 @@ func main() {
 | `pkg/httpkit/const.go` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
 | `pkg/httpkit/error.go` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
 | `pkg/httpkit/client.go` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
-| `pkg/httpkit/request.go` | **リトライ実行コア** (`DoRequest`)、および高レベルなAPI (`FetchBytes`, `FetchAndDecodeJSON`など)。 |
+| `pkg/httpkit/request.go` | **リトライ実行コア** (`DoRequest`)、および高レベルなAPI (`FetchBytes`, `PostJSONAndFetchBytes`, `PostRawBodyAndFetchBytes`など)。 |
 | `pkg/httpkit/response.go` | **レスポンス処理** (`HandleResponse`)、サイズ制限の適用、リトライ判定ロジック。 |
 
 ### 依存関係
