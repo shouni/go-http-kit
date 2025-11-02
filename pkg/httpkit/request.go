@@ -84,13 +84,30 @@ func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
 	return c.DoRequest(req)
 }
 
+// PostRawBodyAndFetchBytes は指定された生のバイト配列をPOSTし、レスポンスボディをバイト配列として返します。
+// Content-Type は引数で指定します。
+func (c *Client) PostRawBodyAndFetchBytes(url string, body []byte, contentType string, ctx context.Context) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました (URL: %s): %w", url, err)
+	}
+	c.addCommonHeaders(req)
+	req.Header.Set("Content-Type", contentType)
+
+	return c.DoRequest(req)
+}
+
 // PostJSONAndFetchBytes は指定されたデータをJSONとしてPOSTし、レスポンスボディをバイト配列として返します。
+// NOTE: 以前の記憶にあるこの関数は、より汎用的な PostRawBodyAndFetchBytes を利用するように書き換えることもできますが、
+// JSONマーシャリングの責務をここに持たせることで、利用者側のコードを簡潔にします。
 func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context) ([]byte, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
 
+	// 新しい PostRawBodyAndFetchBytes を利用して実装を簡潔化することも可能だが、
+	// ここでは元の構造を維持しつつ Content-Type をハードコード
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました: %w", err)
