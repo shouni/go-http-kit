@@ -3,7 +3,7 @@ module github.com/shouni/go-http-kit
 go 1.24.0
 
 require (
-	github.com/shouni/go-utils v1.0.2
+	github.com/shouni/go-utils v1.0.6
 	github.com/stretchr/testify v1.11.1
 )
 
