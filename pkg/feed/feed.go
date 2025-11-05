@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -22,6 +23,7 @@ func NewParser(client *httpkit.Client) *Parser {
 }
 
 // FetchAndParse は指定されたURLからフィードを取得し、パースします。
+// context.Context は Go の慣習に従い第一引数に配置しています。
 func (p *Parser) FetchAndParse(ctx context.Context, feedURL string) (*gofeed.Feed, error) {
 	// 修正済みの httpkit.Client.FetchBytes を呼び出す
 	body, err := p.client.FetchBytes(ctx, feedURL)
@@ -30,9 +32,7 @@ func (p *Parser) FetchAndParse(ctx context.Context, feedURL string) (*gofeed.Fee
 	}
 
 	fp := gofeed.NewParser()
-
-	// 取得したバイトスライスを文字列に変換してパースします。
-	feed, parseErr := fp.ParseString(string(body))
+	feed, parseErr := fp.Parse(bytes.NewReader(body))
 	if parseErr != nil {
 		return nil, fmt.Errorf("RSSフィードのパース失敗 (URL: %s): %w", feedURL, parseErr)
 	}
