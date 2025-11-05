@@ -91,7 +91,15 @@ func main() {
     
     // ----- 高レベルな便利メソッドの使用例 (contextが第一引数) -----
 
-	// 3. PostJSONAndFetchBytes でJSONをPOSTし、バイト配列を取得
+	// 3. FetchBytes でバイト配列を取得 (リトライ、ヘッダー設定、エラー処理完結)
+	bodyBytes, fetchErr := client.FetchBytes(ctx, "https://api.example.com/data")
+	if fetchErr != nil {
+		fmt.Printf("FetchBytes 失敗: %v\n", fetchErr)
+		return
+	}
+	fmt.Printf("FetchBytes 成功: %s\n", bodyBytes)
+	
+	// 4. PostJSONAndFetchBytes でJSONをPOSTし、バイト配列を取得
 	postData := map[string]string{"key": "value"}
 	bodyBytes, fetchErr := client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
     if fetchErr != nil {
@@ -100,7 +108,7 @@ func main() {
     }
     fmt.Printf("ボディサイズ: %dバイト\n", len(bodyBytes))
 
-    // 4. (推奨) FetchAndDecodeJSON で取得とJSONデコードを同時に実行
+    // 5. (推奨) FetchAndDecodeJSON で取得とJSONデコードを同時に実行
     var result ExampleResponse
     decodeErr := client.FetchAndDecodeJSON(ctx, "https://api.example.com/status", &result)
     if decodeErr != nil {
@@ -109,7 +117,7 @@ func main() {
     }
     fmt.Printf("デコード成功: Status = %s, Message = %s\n", result.Status, result.Data.Message)
 
-    // 5. POSTリクエストとJSONデータの送信
+    // 6. POSTリクエストとJSONデータの送信
     postData = map[string]string{"key": "value"}
     postBytes, postErr := client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
     if postErr != nil {
@@ -118,7 +126,7 @@ func main() {
     }
     fmt.Printf("POSTレスポンス: %s\n", postBytes)
 
-    // 6. RAWデータ (例: XMLやカスタム形式) のPOST （修正項目: 削除された例を復元）
+    // 7. RAWデータ (例: XMLやカスタム形式) のPOST （修正項目: 削除された例を復元）
     rawBody := []byte("<data>raw_content</data>")
     rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes(ctx, "https://api.example.com/upload", rawBody, "application/xml")
     if rawPostErr != nil {
