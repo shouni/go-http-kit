@@ -20,7 +20,7 @@
 | | **非リトライエラー** | **HTTP 4xx (クライアントエラー)** はリトライしません。 |
 | **リクエスト実行** | **強力な実行コア** | **`DoRequest(req *http.Request)`** をコアとし、すべてのリクエスト（GET/POST/PUTなど）に統一的なリトライとエラー処理を適用します。 |
 | **安全性** | **ボディサイズ制限の厳格化** | `MaxResponseBodySize`（デフォルト **25MB**）超過を**厳格に検出**し、メモリ枯渇を防止します。 |
-| **安全性** | **接続リーク防止** | レスポンスボディのクローズを厳密に管理し、リソースリークを防ぎます。 **（修正項目: 欠落項目の追加）** |
+| **安全性** | **接続リーク防止** | レスポンスボディのクローズを厳密に管理し、リソースリークを防ぎます。 |
 | **インターフェース** | **クリーンなインターフェース** | 標準の `*http.Client.Do()` 互換の **`httpkit.Doer`** と、コンテンツ抽出用の **`httpkit.Fetcher`** インターフェースを提供します。 |
 
 ---
@@ -102,7 +102,7 @@ func main() {
 
     // 4. (推奨) FetchAndDecodeJSON で取得とJSONデコードを同時に実行
     var result ExampleResponse
-    decodeErr := client.FetchAndDecodeJSON(ctx, "https://api.example.com/status]", &result)
+    decodeErr := client.FetchAndDecodeJSON(ctx, "https://api.example.com/status", &result)
     if decodeErr != nil {
         fmt.Printf("JSONデコード失敗: %v\n", decodeErr)
         return
@@ -120,7 +120,7 @@ func main() {
 
     // 6. RAWデータ (例: XMLやカスタム形式) のPOST （修正項目: 削除された例を復元）
     rawBody := []byte("<data>raw_content</data>")
-    rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes(ctx, "https://api.example.com/upload)", rawBody, "application/xml")
+    rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes(ctx, "https://api.example.com/upload", rawBody, "application/xml")
     if rawPostErr != nil {
         fmt.Printf("Raw POST失敗: %v\n", rawPostErr)
         return
