@@ -78,7 +78,7 @@ func main() {
     
     // 2. 標準の http.Client.Do() と同じ方法でリクエストを実行 (低レベル)
     // ライブラリが httpkit.Doer を実装していることを示します。
-    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "[https://api.example.com/status](https://api.example.com/status)", nil)
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/status", nil)
 
     resp, err := client.Do(req)
     if err != nil {
@@ -91,9 +91,9 @@ func main() {
     
     // ----- 高レベルな便利メソッドの使用例 (contextが第一引数) -----
 
-    // 3. FetchBytes でバイト配列を取得
+	// 3. PostJSONAndFetchBytes でJSONをPOSTし、バイト配列を取得
 	postData := map[string]string{"key": "value"}
-    bodyBytes, fetchErr := client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
+	bodyBytes, fetchErr := client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
     if fetchErr != nil {
         fmt.Printf("FetchBytes 失敗: %v\n", fetchErr)
         return
@@ -107,8 +107,6 @@ func main() {
         fmt.Printf("JSONデコード失敗: %v\n", decodeErr)
         return
     }
-    fmt.Printf("デコード成功: Status = %s\n", result.Status)
-
     fmt.Printf("デコード成功: Status = %s, Message = %s\n", result.Status, result.Data.Message)
 
     // 5. POSTリクエストとJSONデータの送信
@@ -192,7 +190,7 @@ func main() {
 | `pkg/httpkit/const.go`     | `httpkit` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
 | `pkg/httpkit/error.go`     | `httpkit` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
 | `pkg/httpkit/client.go`    | `httpkit` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
-| `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、および高レベルなAPI (`FetchBytes`, `PostJSONAndFetchBytes`など)。 |
+| `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、および高レベルなAPI (`FetchBytes`, `PostJSONAndFetchBytes`, `PostRawBodyAndFetchBytes`など)。 |
 | `pkg/httpkit/response.go`  | `httpkit` | **レスポンス処理** (`HandleResponse`)、サイズ制限の適用、リトライ判定ロジック。 |
 | `pkg/feed/feed.go`         | `feed` | **フィード取得コア**: `Parser` 構造体、`FetchAndParse` メソッド (エンコーディング自動判別)。 |
 | `pkg/feed/links.go`        | `feed` | **リンク抽象化**: `LinkSource` インターフェース、`FeedAdapter`、`GetAllLinks` 汎用関数。 |
