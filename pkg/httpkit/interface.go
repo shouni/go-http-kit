@@ -17,5 +17,5 @@ type Doer interface {
 // Fetcher は、HTMLドキュメントの生バイト配列を取得する機能のインターフェースを定義します。
 // これは外部のパッケージ（例: extract）で利用されることを想定したインターフェースです。
 type Fetcher interface {
-	FetchBytes(url string, ctx context.Context) ([]byte, error)
+	FetchBytes(ctx context.Context, url string) ([]byte, error)
 }

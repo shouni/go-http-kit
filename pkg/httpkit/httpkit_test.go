@@ -204,7 +204,8 @@ func TestClient_FetchBytes_Retries(t *testing.T) {
 		}
 		mockDoer.CallCount = 0 // テスト開始前にリセット
 
-		result, err := client.FetchBytes(url, ctx)
+		// 修正: 引数順序を (ctx, url) に変更
+		result, err := client.FetchBytes(ctx, url)
 
 		assert.NoError(t, err)
 		assert.Equal(t, []byte(body), result)
@@ -220,7 +221,8 @@ func TestClient_FetchBytes_Retries(t *testing.T) {
 		mockDoer.Responses = []*http.Response{resp400}
 		mockDoer.CallCount = 0 // テスト開始前にリセット
 
-		_, err := client.FetchBytes(url, ctx)
+		// 修正: 引数順序を (ctx, url) に変更
+		_, err := client.FetchBytes(ctx, url)
 
 		assert.Error(t, err)
 		assert.True(t, httpkit.IsNonRetryableError(err), "Error should be NonRetryableHTTPError")

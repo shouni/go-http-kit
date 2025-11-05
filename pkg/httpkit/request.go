@@ -74,7 +74,8 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 // ----------------------------------------------------------------------
 
 // FetchBytes は指定されたURLにGETリクエストを送信し、レスポンスボディをバイト配列として返します。
-func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
+// 修正: context.Context を第一引数に移動しました。
+func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP GETリクエストの作成に失敗しました (URL: %s): %w", url, err)
@@ -86,7 +87,8 @@ func (c *Client) FetchBytes(url string, ctx context.Context) ([]byte, error) {
 
 // PostRawBodyAndFetchBytes は指定された生のバイト配列をPOSTし、レスポンスボディをバイト配列として返します。
 // Content-Type は引数で指定します。
-func (c *Client) PostRawBodyAndFetchBytes(url string, body []byte, contentType string, ctx context.Context) ([]byte, error) {
+// 修正: context.Context を第一引数に移動しました。
+func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("POSTリクエスト作成に失敗しました (URL: %s): %w", url, err)
@@ -98,22 +100,24 @@ func (c *Client) PostRawBodyAndFetchBytes(url string, body []byte, contentType s
 }
 
 // PostJSONAndFetchBytes は指定されたデータをJSONとしてPOSTし、レスポンスボディをバイト配列として返します。
-// NOTE: 以前の記憶にあるこの関数は、より汎用的な PostRawBodyAndFetchBytes を利用するように書き換えることもできますが、
-// JSONマーシャリングの責務をここに持たせることで、利用者側のコードを簡潔にします。
-func (c *Client) PostJSONAndFetchBytes(url string, data any, ctx context.Context) ([]byte, error) {
+// 修正: context.Context を第一引数に移動しました。
+func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
 
-	return c.PostRawBodyAndFetchBytes(url, requestBody, "application/json", ctx)
+	// 修正された PostRawBodyAndFetchBytes を呼び出す
+	return c.PostRawBodyAndFetchBytes(ctx, url, requestBody, "application/json")
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
 // レスポンスボディをJSONとして読み込み、指定された構造体 v にデコードします。
-func (c *Client) FetchAndDecodeJSON(url string, ctx context.Context, v any) error {
+// 修正: context.Context を第一引数に移動しました。
+func (c *Client) FetchAndDecodeJSON(ctx context.Context, url string, v any) error {
 	// 1. FetchBytes (DoRequest を経由) を使用してバイト配列を取得
-	bodyBytes, err := c.FetchBytes(url, ctx)
+	// 修正された FetchBytes を呼び出す
+	bodyBytes, err := c.FetchBytes(ctx, url)
 	if err != nil {
 		// HTTP/リトライエラーの場合
 		return err
