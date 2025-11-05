@@ -9,16 +9,22 @@ import (
 	"github.com/shouni/go-http-kit/pkg/httpkit"
 )
 
-// コアとなるデータ取得・パース機能
-
-// Parser はフィードの取得とパースを担当します。
-type Parser struct {
-	// client は注入された httpkit.Client のインスタンスです。
-	client *httpkit.Client
+// Parserが依存すべきインターフェース
+type Fetcher interface {
+	FetchBytes(ctx context.Context, url string) ([]byte, error)
 }
 
+// Parser 構造体
+type Parser struct {
+	client Fetcher // インターフェースに依存
+}
+
+// コアとなるデータ取得・パース機能
+
 // NewParser は新しい Parser インスタンスを初期化し、依存関係を注入します。
+// *httpkit.Client は Fetcher インターフェースを満たしているため、そのまま代入可能です。
 func NewParser(client *httpkit.Client) *Parser {
+	// 【修正箇所】 client (*httpkit.Client) を Fetcher (インターフェース) として代入
 	return &Parser{client: client}
 }
 
