@@ -3,8 +3,7 @@ package feed
 import (
 	"context"
 	"errors"
-	"fmt"
-	"reflect"
+	"strings" // stringsパッケージを追加
 	"testing"
 )
 
@@ -89,7 +88,8 @@ func TestFetchAndParse(t *testing.T) {
 				FetchBytesFunc: tt.mockFetchFunc,
 			}
 
-			// 【修正箇所】NewParserを介さず、Parser構造体を直接初期化し、Fetcherインターフェースにモックを代入
+			// NewParserを介さず、Parser構造体を直接初期化し、Fetcherインターフェースにモックを代入
+			// 修正により、差分説明用のコメントを削除
 			p := &Parser{
 				client: mockClient,
 			}
@@ -122,18 +122,8 @@ func TestFetchAndParse(t *testing.T) {
 }
 
 // 簡易的な文字列部分一致ヘルパー
+// strings.Containsに置き換え、ロジックを簡素化しました。
 func contains(s, substr string) bool {
-	// errors.Is/Asを使えない fmt.Errorf の文字列ラッパーに対して、エラーの「核」が含まれるかを確認
-	return len(s) >= len(substr) && s[:len(substr)] == substr || len(s) >= len(substr) && s[len(s)-len(substr):] == substr || len(s) > len(substr) && reflect.DeepEqual(s, fmt.Sprintf("フィードの取得失敗 (URL: http://example.com/feed): HTTPエラー: 500 Internal Server Error")) || len(s) > len(substr) && containsInternal(s, substr)
-}
-
-// containsの内部ロジックを簡略化
-func containsInternal(s, substr string) bool {
-	// 実際に部分一致を確認するロジック
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	// stringsパッケージを使用して部分一致を確認
+	return strings.Contains(s, substr)
 }

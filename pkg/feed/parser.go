@@ -24,7 +24,6 @@ type Parser struct {
 // NewParser は新しい Parser インスタンスを初期化し、依存関係を注入します。
 // *httpkit.Client は Fetcher インターフェースを満たしているため、そのまま代入可能です。
 func NewParser(client *httpkit.Client) *Parser {
-	// 【修正箇所】 client (*httpkit.Client) を Fetcher (インターフェース) として代入
 	return &Parser{client: client}
 }
 
