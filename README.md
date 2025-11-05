@@ -126,7 +126,7 @@ func main() {
     }
     fmt.Printf("POSTレスポンス: %s\n", postBytes)
 
-    // 7. RAWデータ (例: XMLやカスタム形式) のPOST （修正項目: 削除された例を復元）
+    // 7. RAWデータ (例: XMLやカスタム形式) のPOST
     rawBody := []byte("<data>raw_content</data>")
     rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes(ctx, "https://api.example.com/upload", rawBody, "application/xml")
     if rawPostErr != nil {
