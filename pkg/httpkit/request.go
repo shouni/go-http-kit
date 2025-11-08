@@ -114,7 +114,7 @@ func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body 
 func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
-		return nil, fmt.Errorf("JSONエンコードに失敗しました: %w", err)
+		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
 
 	req, err := c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
