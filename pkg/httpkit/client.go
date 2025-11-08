@@ -13,7 +13,6 @@ import (
 
 // Client はHTTPリクエストと指数バックオフを用いたリトライロジックを管理します。
 type Client struct {
-	// Doer は interface.go で定義
 	httpClient  Doer
 	RetryConfig retry.Config
 }
