@@ -18,7 +18,7 @@ type Doer interface {
 // コアな機能のインターフェースを定義します。
 type ClientInterface interface {
 	DoRequest(req *http.Request) ([]byte, error)
-	FetchBytes(ctx context.Context, url string) ([]byte, error) // こちらを主要な FetchBytes として扱う
+	FetchBytes(ctx context.Context, url string) ([]byte, error) // httpkit.Client が提供するGETリクエストによるバイト配列取得の主要なメソッド
 	FetchAndDecodeJSON(ctx context.Context, url string, v any) error
 	PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error)
 	PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error)
