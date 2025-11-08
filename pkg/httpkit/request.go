@@ -32,16 +32,12 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", UserAgent)
 }
 
-// makeRequest は、指定されたメソッド、URL、ボディを使って *http.Request を構築し、
+// makeRequest は、指定されたメソッド、URL、ボディリーダーを使って *http.Request を構築し、
 // コンテキストを注入し、共通ヘッダーを追加します。
-func (c *Client) makeRequest(ctx context.Context, method string, url string, body []byte) (*http.Request, error) {
-	var reqBody io.Reader
-	if body != nil {
-		reqBody = bytes.NewReader(body)
-	}
-
+// bodyReader に nil を渡すことでボディなしのリクエストを作成できます。
+func (c *Client) makeRequest(ctx context.Context, method string, url string, bodyReader io.Reader) (*http.Request, error) {
 	// 1. リクエスト構築と Context 注入
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("HTTPリクエストの作成に失敗しました (%s %s): %w", method, url, err)
 	}
@@ -98,7 +94,12 @@ func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
 
 // PostRawBodyAndFetchBytes は指定された生のバイト配列をPOSTし、レスポンスボディをバイト配列として返します。
 func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error) {
-	req, err := c.makeRequest(ctx, http.MethodPost, url, body)
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+
+	req, err := c.makeRequest(ctx, http.MethodPost, url, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +114,17 @@ func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body 
 func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
-		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
+		return nil, fmt.Errorf("JSONエンコードに失敗しました: %w", err)
 	}
 
-	// 修正された PostRawBodyAndFetchBytes を呼び出す
-	return c.PostRawBodyAndFetchBytes(ctx, url, requestBody, "application/json")
+	req, err := c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	return c.DoRequest(req)
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
