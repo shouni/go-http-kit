@@ -14,8 +14,12 @@ type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Fetcher は、HTMLドキュメントの生バイト配列を取得する機能のインターフェースを定義します。
-// これは外部のパッケージ（例: extract）で利用されることを想定したインターフェースです。
-type Fetcher interface {
+// ClientInterface は、リトライと共通処理を含む httpkit.Client が提供する
+// コアな機能のインターフェースを定義します。
+type ClientInterface interface {
+	DoRequest(req *http.Request) ([]byte, error)
 	FetchBytes(ctx context.Context, url string) ([]byte, error)
+	FetchAndDecodeJSON(ctx context.Context, url string, v any) error
+	PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error)
+	PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error)
 }
