@@ -93,6 +93,7 @@ func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
 }
 
 // PostRawBodyAndFetchBytes は指定された生のバイト配列をPOSTし、レスポンスボディをバイト配列として返します。
+// Content-Type はリクエスト固有のヘッダーであるため、このメソッド内で設定します。
 func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
