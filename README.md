@@ -31,7 +31,7 @@
 ### 導入
 
 ```bash
-go get https://github.com/shouni/go-http-kit
+go get github.com/shouni/go-http-kit
 ```
 
 ### 1\. HTTP クライアントの使用 (pkg/httpkit)
