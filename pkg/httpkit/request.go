@@ -119,16 +119,8 @@ func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
-	req, err := c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
-	if err != nil {
-		return nil, err
-	}
 
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(requestBody)), nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.DoRequest(req)
+	return c.PostRawBodyAndFetchBytes(ctx, url, requestBody, "application/json")
 }
 
 // FetchAndDecodeJSON は指定されたURLにGETリクエストを送信し、
