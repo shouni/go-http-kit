@@ -22,7 +22,7 @@
 | **リクエスト実行** | **ストリーミング対応** | リクエストボディを `io.Reader` で受け付ける内部ヘルパーを導入し、**大容量データ**のメモリ効率を向上。 |
 | **安全性** | **ボディサイズ制限の厳格化** | `MaxResponseBodySize`（デフォルト **25MB**）超過を**厳格に検出**し、メモリ枯渇を防止します。 |
 | **安全性** | **接続リーク防止** | レスポンスボディのクローズを厳密に管理し、リソースリークを防ぎます。 |
-| **インターフェース** | **クリーンなインターフェース** | 標準の `*http.Client.Do()` 互換の **`httpkit.Doer`**、コンテンツ抽出用の **`httpkit.Fetcher`**、および主要機能を持つ **`httpkit.ClientInterface`** インターフェースを提供します。 |
+| **インターフェース** | **クリーンなインターフェース** | 標準の **`http.Client.Do()`** 互換の **`httpkit.Doer`**、および主要機能を持つ **`httpkit.ClientInterface`** インターフェースを提供します。 |
 
 -----
 
@@ -138,7 +138,7 @@ func main() {
 
 | ファイル名 | パッケージ | 役割 |
 |:---| :--- | :--- |
-| `pkg/httpkit/interface.go` | `httpkit` | **`Doer`**, **`Fetcher`**, **`ClientInterface`** など、パッケージの契約となるインターフェース定義。 |
+| `pkg/httpkit/interface.go` | `httpkit` | **`Doer`** と **`ClientInterface`** という、パッケージの契約となる主要インターフェース定義。 |
 | `pkg/httpkit/const.go`     | `httpkit` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
 | `pkg/httpkit/error.go`     | `httpkit` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
 | `pkg/httpkit/client.go`    | `httpkit` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
