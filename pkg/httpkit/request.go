@@ -93,21 +93,23 @@ func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
 }
 
 // PostRawBodyAndFetchBytes は指定された生のバイト配列をPOSTし、レスポンスボディをバイト配列として返します。
-// Content-Type はリクエスト固有のヘッダーであるため、このメソッド内で設定します。
 func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
-
 	req, err := c.makeRequest(ctx, http.MethodPost, url, reqBody)
 	if err != nil {
 		return nil, err
 	}
 
+	if body != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(body)), nil
+		}
+	}
 	// Content-Type は汎用ではないため、このメソッド内でのみ設定する
 	req.Header.Set("Content-Type", contentType)
-
 	return c.DoRequest(req)
 }
 
@@ -117,14 +119,15 @@ func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
-
 	req, err := c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, err
 	}
 
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(requestBody)), nil
+	}
 	req.Header.Set("Content-Type", "application/json")
-
 	return c.DoRequest(req)
 }
 
