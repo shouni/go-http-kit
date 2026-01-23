@@ -47,7 +47,9 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 // ユーティリティ・公開メソッド
 // ----------------------------------------------------------------------
 
-// Do は Doer インターフェースが持つ Do メソッドを呼び出すラッパーです。
+// Do は Doer インターフェースを実装するためのメソッドです。
+// これにより、*httpkit.Client を標準の *http.Client のように扱える場面を増やします。
+// 注意: このメソッドはリトライロジックを適用しません。リトライを含む実行には DoRequest を使用してください。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
