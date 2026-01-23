@@ -5,8 +5,6 @@
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/shouni/go-http-kit)](https://github.com/shouni/go-http-kit/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🚀 特徴
-
 このライブラリは、外部サービスとの通信における**安定性**と**保守性**を極限まで高めることを目的とした、**リトライ機能付きHTTPクライアント**を提供します。
 
 -----
@@ -16,23 +14,17 @@
 | カテゴリ | 特徴 | 詳細/実装 |
 | :--- | :--- | :--- |
 | **自動リトライ機能** | **指数バックオフによる自動適用** | 外部の `go-utils/retry` と連携し、**指数バックオフ**を用いた高度なリトライ戦略を適用します。 |
-| | **リトライ対象エラー** | **ネットワークエラー**、**タイムアウトエラー**、**HTTP 5xx (Server Error)** のみ。 |
-| | **非リトライエラー** | **HTTP 4xx (クライアントエラー)** はリトライしません。 |
+| | **リトライ対象エラー** | **ネットワーク一時エラー**、**HTTP 5xx (Server Error)**。 |
+| | **非リトライエラー** | **HTTP 4xx (クライアントエラー)**、および **Contextエラー (キャンセル/デッドライン超過)**。 |
 | **リクエスト実行** | **強力な実行コア** | **`DoRequest(req *http.Request)`** をコアとし、すべてのリクエストに統一的なリトライとエラー処理を適用します。 |
 | **リクエスト実行** | **ストリーミング対応** | リクエストボディを `io.Reader` で受け付ける内部ヘルパーを導入し、**大容量データ**のメモリ効率を向上。 |
 | **安全性** | **ボディサイズ制限の厳格化** | `MaxResponseBodySize`（デフォルト **25MB**）超過を**厳格に検出**し、メモリ枯渇を防止します。 |
-| **安全性** | **接続リーク防止** | レスポンスボディのクローズを厳密に管理し、リソースリークを防ぎます。 |
+| **安全性** | **コンテキストの尊重** | `context.Canceled` を検知した場合、リトライループを即座に抜け、呼び出し元の意図を最優先します。 |
 | **インターフェース** | **クリーンなインターフェース** | 標準の **`http.Client.Do()`** 互換の **`httpkit.Doer`**、および主要機能を持つ **`httpkit.ClientInterface`** インターフェースを提供します。 |
 
 -----
 
 ## 📦 ライブラリ利用方法
-
-### 導入
-
-```bash
-go get github.com/shouni/go-http-kit
-```
 
 ### 1\. HTTP クライアントの使用 (pkg/httpkit)
 
@@ -142,9 +134,8 @@ func main() {
 | `pkg/httpkit/const.go`     | `httpkit` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
 | `pkg/httpkit/error.go`     | `httpkit` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
 | `pkg/httpkit/client.go`    | `httpkit` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
-| `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、**リクエスト構築ヘルパー** (`makeRequest`)、および高レベルなAPI (`FetchBytes`、`PostJSONAndFetchBytes`など)。 |
-| `pkg/httpkit/response.go`  | `httpkit` | **レスポンス処理** (`HandleResponse`)、サイズ制限の適用、リトライ判定ロジック。 |
-
+| `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、**リクエスト構築ヘルパー** (`makeRequest`)、および高レベルなAPI。 |
+| `pkg/httpkit/response.go`  | `httpkit` | レスポンス処理、サイズ制限の適用。**Contextの状態を考慮したリトライ判定ロジック**の実装。 |
 
 ## 🤝 依存関係 (Dependencies)
 
