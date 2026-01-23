@@ -40,6 +40,13 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		opt(client)
 	}
 
+	// 3. AllowInsecure が true なら、securenet の制限がない標準クライアントに差し替える
+	if client.AllowInsecure {
+		client.httpClient = &http.Client{
+			Timeout: timeout,
+		}
+	}
+
 	return client
 }
 
