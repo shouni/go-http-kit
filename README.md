@@ -79,7 +79,7 @@ func main() {
     // 社内APIへのアクセスなど、安全性が保証されている場合は検証をスキップ
     internalClient := httpkit.New(
         5*time.Second,
-        httpkit.WithInsecure(true),
+        httpkit.SkipNetworkValidation(true),
     )
 
 ```
@@ -94,7 +94,7 @@ func main() {
 | :--- | :--- |
 | `pkg/httpkit/interface.go` | `Doer` および `ClientInterface` の定義。 |
 | `pkg/httpkit/client.go` | `Client` 本体、コンストラクタ、セキュリティ検証メソッド。 |
-| `pkg/httpkit/options.go` | `WithInsecure` などの各種設定オプション。 |
+| `pkg/httpkit/options.go` | `SkipNetworkValidation` などの各種設定オプション。 |
 | `pkg/httpkit/request.go` | リトライ実行コア (`DoRequest`) および高レベル API 群。 |
 | `pkg/httpkit/response.go` | レスポンス処理、サイズ制限、エラー判定。 |
 | `pkg/httpkit/error.go` | カスタムエラー型とリトライ可否の判定ロジック。 |
