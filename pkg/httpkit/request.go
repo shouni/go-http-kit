@@ -37,17 +37,22 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 	// 1. SSRF 検証 (AllowInsecure が false の場合のみ)
 	if !c.AllowInsecure {
 		if ok, err := c.IsSafeURL(urlStr); !ok {
+			// netarmor.IsSafeURL の仕様上、!ok の場合は err が non-nil であることが期待される。
+			// 防御的に err が nil のケースも考慮し、汎用的なエラーメッセージを生成する。
+			var validationErr error
 			if err != nil {
-				return nil, fmt.Errorf("SSRF安全検証エラー: %w", err)
+				validationErr = err
+			} else {
+				validationErr = fmt.Errorf("URL '%s' へのアクセスはセキュリティポリシーによりブロックされました", urlStr)
 			}
-			return nil, fmt.Errorf("SSRF安全検証エラー: URL '%s' へのアクセスはブロックされました", urlStr)
+			return nil, fmt.Errorf("SSRF安全検証エラー: %w", validationErr)
 		}
 	}
 
 	// 2. リクエストの構築
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("HTTPリクエスト作成失敗: %w", err)
+		return nil, fmt.Errorf("HTTPリクエスト作成失敗 (method: %s, url: %s): %w", method, urlStr, err)
 	}
 
 	// 3. 共通ヘッダーの追加 (関数呼び出しを維持)
