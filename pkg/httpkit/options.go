@@ -36,10 +36,10 @@ func WithMaxInterval(d time.Duration) ClientOption {
 	}
 }
 
-// WithInsecure は SSRF 対策の自動チェックをスキップするかどうかを設定します。
-// 内部ネットワークへのリクエストが必要な場合などに true を設定します。
-func WithInsecure(allow bool) ClientOption {
+// WithSkipNetworkValidation は SSRF 対策や IP 制限などのネットワーク検証をスキップするかどうかを設定します。
+// 内部ネットワーク (localhost, 127.0.0.1, ::1 等) へのリクエストが必要な場合に true を設定します。
+func WithSkipNetworkValidation(skip bool) ClientOption {
 	return func(c *Client) {
-		c.AllowInsecure = allow
+		c.SkipNetworkValidation = skip
 	}
 }

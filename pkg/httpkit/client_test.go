@@ -12,16 +12,16 @@ func TestNew_And_Options(t *testing.T) {
 	t.Run("DefaultSettings", func(t *testing.T) {
 		client := httpkit.New(0)
 		assert.NotNil(t, client)
-		assert.False(t, client.AllowInsecure)
+		assert.False(t, client.SkipNetworkValidation)
 	})
 
 	t.Run("CustomOptions", func(t *testing.T) {
 		client := httpkit.New(1*time.Second,
 			httpkit.WithMaxRetries(5),
-			httpkit.WithInsecure(true),
+			httpkit.WithSkipNetworkValidation(true),
 		)
 		assert.Equal(t, uint64(5), client.RetryConfig.MaxRetries)
-		assert.True(t, client.AllowInsecure)
+		assert.True(t, client.SkipNetworkValidation)
 	})
 }
 

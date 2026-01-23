@@ -15,9 +15,9 @@ import (
 // Client はHTTPリクエストと指数バックオフを用いたリトライロジック、
 // および SSRF 対策などのセキュリティ検証を管理します。
 type Client struct {
-	httpClient    Doer
-	RetryConfig   retry.Config
-	AllowInsecure bool
+	httpClient            Doer
+	RetryConfig           retry.Config
+	SkipNetworkValidation bool
 }
 
 // New は新しいClientを初期化します。
@@ -30,9 +30,9 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 
 	// 1. デフォルト設定を適用
 	client := &Client{
-		httpClient:    securenet.NewSafeHTTPClient(timeout),
-		RetryConfig:   retry.DefaultConfig(),
-		AllowInsecure: false,
+		httpClient:            securenet.NewSafeHTTPClient(timeout),
+		RetryConfig:           retry.DefaultConfig(),
+		SkipNetworkValidation: false,
 	}
 
 	// 2. オプションで設定を上書き
@@ -40,10 +40,15 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		opt(client)
 	}
 
-	// 3. AllowInsecure が true なら、securenet の制限がない標準クライアントに差し替える
-	if client.AllowInsecure {
-		client.httpClient = &http.Client{
-			Timeout: timeout,
+	// 3. 確定した設定に基づいて httpClient を構築する
+	// こうすれば、上書きによる設定漏れは構造的に発生しない
+	if client.httpClient == nil {
+		if client.SkipNetworkValidation {
+			// セキュリティ制限なし
+			client.httpClient = &http.Client{Timeout: timeout}
+		} else {
+			// securenet による防御あり
+			client.httpClient = securenet.NewSafeHTTPClient(timeout)
 		}
 	}
 
