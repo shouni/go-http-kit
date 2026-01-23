@@ -60,15 +60,21 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// 1. Contextエラー（タイムアウト/キャンセル）はリトライ対象
+
+	// 1. Contextエラー（タイムアウト/キャンセル）はリトライしない
+	// 呼び出し側が意図的に中断した、または期限が切れた操作を再試行すると
+	// 意図しないリソース消費や無限ループを招く可能性があるため。
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
+		return false
 	}
-	// 2. 非リトライ対象エラー（4xx）はリトライしない
+
+	// 2. 非リトライ対象エラー（明示的な4xxエラーなど）はリトライしない
 	if IsNonRetryableError(err) {
 		return false
 	}
-	// 3. 5xxエラーやネットワークエラー（NonRetryableHTTPErrorでないもの）はすべてリトライ対象
+
+	// 3. 5xxエラーや一時的なネットワークエラーはリトライ対象とする
+	// HandleResponse で 5xx は通常のエラー（fmt.Errorf）として返されるため、ここに到達する。
 	return true
 }
 

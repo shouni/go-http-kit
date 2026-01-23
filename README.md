@@ -145,12 +145,10 @@ func main() {
 | `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、**リクエスト構築ヘルパー** (`makeRequest`)、および高レベルなAPI (`FetchBytes`、`PostJSONAndFetchBytes`など)。 |
 | `pkg/httpkit/response.go`  | `httpkit` | **レスポンス処理** (`HandleResponse`)、サイズ制限の適用、リトライ判定ロジック。 |
 
-### 依存関係
 
-このパッケージは、リトライ処理の実装に以下の外部パッケージに依存しています。
+## 🤝 依存関係 (Dependencies)
 
-* `github.com/shouni/netarmor/retry`
-* `github.com/cenkalti/backoff/v4` (間接的に利用)
+* [shouni/netarmor](https://github.com/shouni/netarmor) - ネットワークユーティリティ
 
 ### 📜 ライセンス (License)
 
