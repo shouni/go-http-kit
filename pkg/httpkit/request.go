@@ -35,16 +35,20 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 // makeRequest は、指定されたメソッド、URL、ボディリーダーを使って *http.Request を構築し、
 // コンテキストを注入し、共通ヘッダーを追加します。
 // bodyReader に nil を渡すことでボディなしのリクエストを作成できます。
-func (c *Client) makeRequest(ctx context.Context, method string, url string, bodyReader io.Reader) (*http.Request, error) {
-	// 1. リクエスト構築と Context 注入
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("HTTPリクエストの作成に失敗しました (%s %s): %w", method, url, err)
+func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
+	// AllowInsecure が false の場合のみ SSRF 検証を実行
+	if !c.AllowInsecure {
+		if ok, err := c.IsSafeURL(urlStr); !ok {
+			return nil, fmt.Errorf("SSRF安全検証エラー: %w", err)
+		}
 	}
 
-	// 2. 共通ヘッダーの追加
-	c.addCommonHeaders(req)
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("HTTPリクエスト作成失敗: %w", err)
+	}
 
+	req.Header.Set("User-Agent", UserAgent)
 	return req, nil
 }
 
