@@ -21,7 +21,8 @@ type Client struct {
 }
 
 // New は新しいClientを初期化します。
-// デフォルトで securenet.NewSafeHTTPClient を使用し、DNS Rebinding 攻撃を防御します。
+// デフォルトでSSRF (Server-Side Request Forgery) 対策が有効になっており、
+// 内部的に securenet.NewSafeHTTPClient を使用してDNS Rebinding攻撃も防御します。
 func New(timeout time.Duration, options ...ClientOption) *Client {
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeout
