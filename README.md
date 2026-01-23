@@ -5,30 +5,42 @@
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/shouni/go-http-kit)](https://github.com/shouni/go-http-kit/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-このライブラリは、外部サービスとの通信における**安定性**と**保守性**を極限まで高めることを目的とした、**リトライ機能付きHTTPクライアント**を提供します。
+## 💡 概要 (About) — NetArmor 統合型 HTTP 通信ライブラリ
 
------
+**Go Http Kit** は、[shouni/netarmor](https://github.com/shouni/netarmor) をコアに採用した、**セキュリティ強化型・リトライ機能付きHTTPクライアント**です。
 
-## 💻 ライブラリの主要機能一覧 (pkg/httpkit)
+開発者が意識することなく、外部サービスとの通信における「安全性」と「堅牢性」を同時に確保する「セキュア・バイ・デフォルト」な設計を特徴としています。
+
+* **鉄壁の守り**: SSRF および DNS Rebinding 攻撃をネットワークレイヤーで自動防御。
+* **高い回復力**: 指数バックオフを用いたリトライ制御により、一時的なエラーを自動解決。
+* **リソース保護**: 厳格なレスポンスサイズ制限により、メモリ枯渇（DoS）を未然に防止。
+
+---
+
+## 🛡️ セキュア・バイ・デフォルト (Secure by Default)
+
+`httpkit` は、現代の Web アプリケーションにおいて致命的な脅威となる攻撃を標準設定で防御します。
+
+1. **SSRF 防御**: リクエスト送信前に URL を検証し、プライベート IP やクラウドメタデータへのアクセスを遮断。
+2. **DNS Rebinding 対策**: `netarmor/securenet` を通じて、名前解決から接続直前のタイミング（TOCTOU）を狙った攻撃を IP レベルで防止。
+
+---
+
+## 💻 主要機能 (Key Features)
 
 | カテゴリ | 特徴 | 詳細/実装 |
 | :--- | :--- | :--- |
-| **自動リトライ機能** | **指数バックオフによる自動適用** | 外部の `go-utils/retry` と連携し、**指数バックオフ**を用いた高度なリトライ戦略を適用します。 |
-| | **リトライ対象エラー** | **ネットワーク一時エラー**、**HTTP 5xx (Server Error)**。 |
-| | **非リトライエラー** | **HTTP 4xx (クライアントエラー)**、および **Contextエラー (キャンセル/デッドライン超過)**。 |
-| **リクエスト実行** | **強力な実行コア** | **`DoRequest(req *http.Request)`** をコアとし、すべてのリクエストに統一的なリトライとエラー処理を適用します。 |
-| **リクエスト実行** | **ストリーミング対応** | リクエストボディを `io.Reader` で受け付ける内部ヘルパーを導入し、**大容量データ**のメモリ効率を向上。 |
-| **安全性** | **ボディサイズ制限の厳格化** | `MaxResponseBodySize`（デフォルト **25MB**）超過を**厳格に検出**し、メモリ枯渇を防止します。 |
-| **安全性** | **コンテキストの尊重** | `context.Canceled` を検知した場合、リトライループを即座に抜け、呼び出し元の意図を最優先します。 |
-| **インターフェース** | **クリーンなインターフェース** | 標準の **`http.Client.Do()`** 互換の **`httpkit.Doer`**、および主要機能を持つ **`httpkit.ClientInterface`** インターフェースを提供します。 |
+| **セキュリティ** | **検証ユーティリティ** | `IsSafeURL` や `IsSecureServiceURL` を単体で使用し、入力バリデーションに利用可能。 |
+| **自動リトライ** | **指数バックオフ** | 5xx エラーやネットワーク一時エラーを自動検知してリトライ。**4xx や Context キャンセルは即座に停止**。 |
+| **リクエスト実行** | **高効率 I/O** | ボディを `io.Reader` で扱うストリーミング対応。大容量データの送信も低メモリで実現。 |
+| **安全性** | **ボディサイズ監視** | レスポンスサイズを厳格に制限（デフォルト **25MB**）。予期せぬ巨大データによる OOM を防止。 |
+| **インターフェース** | **高いテスト容易性** | **`httpkit.Doer`** 互換設計。モックの注入が容易で、既存のコードからの移行もスムーズ。 |
 
------
+---
 
 ## 📦 ライブラリ利用方法
 
-### 1\. HTTP クライアントの使用 (pkg/httpkit)
-
-設定は、オプション関数 (`ClientOption`) を使って柔軟に行います。
+### 1. 基本的な使用例 (セキュアモード)
 
 ```go
 package main
@@ -36,111 +48,63 @@ package main
 import (
     "context"
     "fmt"
-    "net/http"
     "time"
 
     "github.com/shouni/go-http-kit/pkg/httpkit"
 )
 
-// APIから取得するデータ構造を定義
-type ExampleResponse struct {
-    Status string `json:"status"`
-    Data   struct {
-       Message string `json:"message"`
-    } `json:"data"`
-}
-
 func main() {
     ctx := context.Background()
     
-    // 1. リトライ機能付きクライアントの初期化
-    // ※ client は httpkit.ClientInterface インターフェースを満たします。
+    // 1. クライアントの初期化 (デフォルトでSSRF/DNS Rebinding対策済み)
     client := httpkit.New(
-       15*time.Second,
-       httpkit.WithMaxRetries(5),
-       httpkit.WithInitialInterval(1*time.Second),
+        15*time.Second,
+        httpkit.WithMaxRetries(3),
     )
     
-    // 2. 標準の http.Client.Do() と同じ方法でリクエストを実行 (低レベル)
-    // ライブラリが httpkit.Doer を実装していることを示します。
-    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/status", nil)
-
-    resp, err := client.Do(req)
+    // 2. 高レベルメソッドで安全にデータを取得 (自動リトライ・サイズチェック込み)
+    body, err := client.FetchBytes(ctx, "https://api.example.com/data")
     if err != nil {
-       fmt.Printf("Do失敗 (リトライ後): %v\n", err)
-       return
+        fmt.Printf("エラー: %v\n", err)
+        return
     }
-    defer resp.Body.Close()
-
-    fmt.Printf("成功: ステータスコード %d\n", resp.StatusCode)
-    
-    // ----- 高レベルな便利メソッドの使用例 (contextが第一引数) -----
-
-    // 3. FetchBytes でバイト配列を取得 (リトライ、ヘッダー設定、エラー処理完結)
-    bodyBytes, fetchErr := client.FetchBytes(ctx, "https://api.example.com/data")
-    if fetchErr != nil {
-       fmt.Printf("FetchBytes 失敗: %v\n", fetchErr)
-       return
-    }
-    fmt.Printf("FetchBytes 成功: %s\n", bodyBytes)
-    
-    // 4. PostJSONAndFetchBytes でJSONをPOSTし、バイト配列を取得
-    postData := map[string]string{"key": "value"}
-    bodyBytes, fetchErr = client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
-    if fetchErr != nil {
-       fmt.Printf("FetchBytes 失敗: %v\n", fetchErr)
-       return
-    }
-    fmt.Printf("ボディサイズ: %dバイト\n", len(bodyBytes))
-
-    // 5. (推奨) FetchAndDecodeJSON で取得とJSONデコードを同時に実行
-    var result ExampleResponse
-    decodeErr := client.FetchAndDecodeJSON(ctx, "https://api.example.com/status", &result)
-    if decodeErr != nil {
-       fmt.Printf("JSONデコード失敗: %v\n", decodeErr)
-       return
-    }
-    fmt.Printf("デコード成功: Status = %s, Message = %s\n", result.Status, result.Data.Message)
-
-    // 6. POSTリクエストとJSONデータの送信
-    postData = map[string]string{"key": "value"}
-    postBytes, postErr := client.PostJSONAndFetchBytes(ctx, "https://api.example.com/submit", postData)
-    if postErr != nil {
-       fmt.Printf("POST失敗: %v\n", postErr)
-       return
-    }
-    fmt.Printf("POSTレスポンス: %s\n", postBytes)
-
-    // 7. RAWデータ (例: XMLやカスタム形式) のPOST
-    rawBody := []byte("<data>raw_content</data>")
-    rawPostBytes, rawPostErr := client.PostRawBodyAndFetchBytes(ctx, "https://api.example.com/upload", rawBody, "application/xml")
-    if rawPostErr != nil {
-       fmt.Printf("Raw POST失敗: %v\n", rawPostErr)
-       return
-    }
-    fmt.Printf("Raw POSTレスポンス: %s\n", rawPostBytes)
+    fmt.Printf("取得成功: %s\n", body)
 }
+
 ```
 
------
+### 2. 内部ネットワーク通信で制限を解除する場合
+
+```go
+    // 社内APIへのアクセスなど、安全性が保証されている場合は検証をスキップ
+    internalClient := httpkit.New(
+        5*time.Second,
+        httpkit.WithInsecure(true),
+    )
+
+```
+
+---
 
 ## 🛠️ 開発者向け情報
 
 ### パッケージ構成
 
-| ファイル名 | パッケージ | 役割 |
-|:---| :--- | :--- |
-| `pkg/httpkit/interface.go` | `httpkit` | **`Doer`** と **`ClientInterface`** という、パッケージの契約となる主要インターフェース定義。 |
-| `pkg/httpkit/const.go`     | `httpkit` | **`DefaultHTTPTimeout`**, **`MaxResponseBodySize`** などの定数定義。 |
-| `pkg/httpkit/error.go`     | `httpkit` | **`NonRetryableHTTPError`** や **`IsNonRetryableError`** など、カスタムエラーとエラー判定ロジック。 |
-| `pkg/httpkit/client.go`    | `httpkit` | **`Client` 構造体**、**`New` コンストラクタ**、および各種設定オプション (`ClientOption`)。 |
-| `pkg/httpkit/request.go`   | `httpkit` | **リトライ実行コア** (`DoRequest`)、**リクエスト構築ヘルパー** (`makeRequest`)、および高レベルなAPI。 |
-| `pkg/httpkit/response.go`  | `httpkit` | レスポンス処理、サイズ制限の適用。**Contextの状態を考慮したリトライ判定ロジック**の実装。 |
+| ファイル名 | 役割 |
+| :--- | :--- |
+| `pkg/httpkit/interface.go` | `Doer` および `ClientInterface` の定義。 |
+| `pkg/httpkit/client.go` | `Client` 本体、コンストラクタ、セキュリティ検証メソッド。 |
+| `pkg/httpkit/options.go` | `WithInsecure` などの各種設定オプション。 |
+| `pkg/httpkit/request.go` | リトライ実行コア (`DoRequest`) および高レベル API 群。 |
+| `pkg/httpkit/response.go` | レスポンス処理、サイズ制限、エラー判定。 |
+| `pkg/httpkit/error.go` | カスタムエラー型とリトライ可否の判定ロジック。 |
 
 ## 🤝 依存関係 (Dependencies)
 
-* [shouni/netarmor](https://github.com/shouni/netarmor) - ネットワークユーティリティ
+* [shouni/netarmor](https://github.com/shouni/netarmor) - **ネットワークセキュリティ & リトライ戦略**
 
 ### 📜 ライセンス (License)
 
 このプロジェクトは [MIT License](https://opensource.org/licenses/MIT) の下で公開されています。
+
+---
