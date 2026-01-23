@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shouni/go-utils/retry"
+	"github.com/shouni/netarmor/retry"
 )
 
 // ----------------------------------------------------------------------

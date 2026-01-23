@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/shouni/go-utils/retry"
+	"github.com/shouni/netarmor/retry"
 )
 
 // ----------------------------------------------------------------------
