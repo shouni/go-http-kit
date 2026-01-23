@@ -149,7 +149,7 @@ func main() {
 
 このパッケージは、リトライ処理の実装に以下の外部パッケージに依存しています。
 
-* `github.com/shouni/go-utils/retry`
+* `github.com/shouni/netarmor/retry`
 * `github.com/cenkalti/backoff/v4` (間接的に利用)
 
 ### 📜 ライセンス (License)
