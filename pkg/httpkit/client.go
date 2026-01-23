@@ -21,33 +21,32 @@ type Client struct {
 }
 
 // New は新しいClientを初期化します。
-// デフォルトでSSRF (Server-Side Request Forgery) 対策が有効になっており、
-// 内部的に securenet.NewSafeHTTPClient を使用してDNS Rebinding攻撃も防御します。
+// デフォルトで SSRF / DNS Rebinding 対策が有効です。
 func New(timeout time.Duration, options ...ClientOption) *Client {
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeout
 	}
 
-	// 1. デフォルト設定を適用
+	// 1. デフォルト設定を適用 (httpClient はまだ確定させない)
 	client := &Client{
-		httpClient:            securenet.NewSafeHTTPClient(timeout),
+		httpClient:            nil,
 		RetryConfig:           retry.DefaultConfig(),
 		SkipNetworkValidation: false,
 	}
 
-	// 2. オプションで設定を上書き
+	// 2. オプションで設定を上書き (WithSkipNetworkValidation 等を適用)
 	for _, opt := range options {
 		opt(client)
 	}
 
-	// 3. 確定した設定に基づいて httpClient を構築する
-	// こうすれば、上書きによる設定漏れは構造的に発生しない
+	// 3. 設定に基づいて httpClient を構築する
+	// WithHTTPClient で既に注入されている場合はそちらを尊重する
 	if client.httpClient == nil {
 		if client.SkipNetworkValidation {
-			// セキュリティ制限なし
+			// ローカル/内部通信を許可する標準クライアント
 			client.httpClient = &http.Client{Timeout: timeout}
 		} else {
-			// securenet による防御あり
+			// securenet による動的バリデーション付きクライアント
 			client.httpClient = securenet.NewSafeHTTPClient(timeout)
 		}
 	}
