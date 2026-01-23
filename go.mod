@@ -1,9 +1,9 @@
 module github.com/shouni/go-http-kit
 
-go 1.24.0
+go 1.25
 
 require (
-	github.com/shouni/go-utils v1.0.7
+	github.com/shouni/netarmor v1.0.0
 	github.com/stretchr/testify v1.11.1
 )
 

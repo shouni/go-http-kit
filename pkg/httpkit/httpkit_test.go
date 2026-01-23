@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -129,12 +130,11 @@ func TestIsHTTPRetryableError(t *testing.T) {
 	// 外部パッケージとしてテストするため、httpkit.Client を使用
 	client := &httpkit.Client{}
 
-	// 1. Contextエラー（リトライ対象）
-	assert.True(t, client.IsHTTPRetryableError(context.Canceled), "Should retry on context.Canceled")
-	assert.True(t, client.IsHTTPRetryableError(context.DeadlineExceeded), "Should retry on context.DeadlineExceeded")
+	// 1. Contextエラー（修正：リトライ対象外とする）
+	assert.False(t, client.IsHTTPRetryableError(context.Canceled), "Should NOT retry on context.Canceled")
+	assert.False(t, client.IsHTTPRetryableError(context.DeadlineExceeded), "Should NOT retry on context.DeadlineExceeded")
 
 	// 2. 非リトライ対象エラー（NonRetryableHTTPError）
-	// httpkit.NonRetryableHTTPError を使用
 	err400 := &httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest}
 	assert.False(t, client.IsHTTPRetryableError(err400), "Should NOT retry on NonRetryableHTTPError (400)")
 
@@ -152,18 +152,12 @@ func TestIsHTTPRetryableError(t *testing.T) {
 // ----------------------------------------------------------------------
 
 func TestNew_DefaultSettings(t *testing.T) {
-	// 1. デフォルトタイムアウトのテスト
 	client := httpkit.New(0)
-
-	// New() の実行と他の公開設定の確認に留めます。
 	assert.NotNil(t, client)
 }
 
 func TestClientOptions(t *testing.T) {
-	// 1. WithMaxRetries
 	client := httpkit.New(1*time.Second, httpkit.WithMaxRetries(5))
-
-	// RetryConfig は大文字で公開されていると仮定してテスト
 	assert.Equal(t, uint64(5), client.RetryConfig.MaxRetries)
 }
 
@@ -175,15 +169,11 @@ func TestClient_FetchBytes_Retries(t *testing.T) {
 	url := "http://example.com/data"
 	ctx := context.Background()
 
-	// NOTE: client.httpClient へのアクセスを避けるため、New時にWithHTTPClientでモックを設定します。
-	mockDoer := &MockDoer{
-		// ErrorsとResponsesは空で初期化
-	}
+	mockDoer := &MockDoer{}
 	client := httpkit.New(
 		1*time.Second,
 		httpkit.WithMaxRetries(2),
 		httpkit.WithInitialInterval(1*time.Millisecond),
-		// Newの時点でモックを設定
 		httpkit.WithHTTPClient(mockDoer),
 	)
 
@@ -193,18 +183,17 @@ func TestClient_FetchBytes_Retries(t *testing.T) {
 		successResp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(body))}
 
 		mockDoer.Errors = []error{
-			errors.New("network error"), // 1回目: ネットワークエラーでリトライ
+			errors.New("network error"),
 			nil,
-			nil, // 3回目: 成功
+			nil,
 		}
 		mockDoer.Responses = []*http.Response{
 			nil,
-			{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(bytes.NewBufferString("500"))}, // 2回目: 500でリトライ
+			{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(bytes.NewBufferString("500"))},
 			successResp,
 		}
-		mockDoer.CallCount = 0 // テスト開始前にリセット
+		mockDoer.CallCount = 0
 
-		// 修正: 引数順序を (ctx, url) に変更
 		result, err := client.FetchBytes(ctx, url)
 
 		assert.NoError(t, err)
@@ -219,13 +208,150 @@ func TestClient_FetchBytes_Retries(t *testing.T) {
 
 		mockDoer.Errors = nil
 		mockDoer.Responses = []*http.Response{resp400}
-		mockDoer.CallCount = 0 // テスト開始前にリセット
+		mockDoer.CallCount = 0
 
-		// 修正: 引数順序を (ctx, url) に変更
 		_, err := client.FetchBytes(ctx, url)
 
 		assert.Error(t, err)
 		assert.True(t, httpkit.IsNonRetryableError(err), "Error should be NonRetryableHTTPError")
 		assert.Equal(t, 1, mockDoer.CallCount, "Should stop after 1 attempt")
+	})
+}
+
+// ----------------------------------------------------------------------
+// 6. HandleLimitedResponse のテスト
+// ----------------------------------------------------------------------
+
+func TestHandleLimitedResponse(t *testing.T) {
+	t.Run("Success_WithinLimit", func(t *testing.T) {
+		body := "Test Body"
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+		}
+		result, err := httpkit.HandleLimitedResponse(resp, 100)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte(body), result)
+	})
+
+	t.Run("Truncated_ExceedsLimit", func(t *testing.T) {
+		body := "This is a very long body content"
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+		}
+		limit := int64(10)
+		result, err := httpkit.HandleLimitedResponse(resp, limit)
+		assert.NoError(t, err)
+		assert.Equal(t, 10, len(result))
+		assert.Equal(t, []byte("This is a "), result)
+	})
+
+	t.Run("ReadError", func(t *testing.T) {
+		errorReader := &errorReader{err: errors.New("read error")}
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(errorReader),
+		}
+		_, err := httpkit.HandleLimitedResponse(resp, 100)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "レスポンスボディの読み込みに失敗しました")
+	})
+
+	t.Run("EmptyBody", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString("")),
+		}
+		result, err := httpkit.HandleLimitedResponse(resp, 100)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte{}, result)
+	})
+}
+
+type errorReader struct {
+	err error
+}
+
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	return 0, e.err
+}
+
+// ----------------------------------------------------------------------
+// 7. HandleResponse の追加テストケース
+// ----------------------------------------------------------------------
+
+func TestHandleResponse_EdgeCases(t *testing.T) {
+	t.Run("Success_EmptyBody", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(bytes.NewBufferString("")),
+		}
+		result, err := httpkit.HandleResponse(resp)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte{}, result)
+	})
+
+	t.Run("ServerError_500InternalServerError", func(t *testing.T) {
+		body := "Internal Server Error"
+		resp := &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+		}
+		_, err := httpkit.HandleResponse(resp)
+		assert.Error(t, err)
+		assert.False(t, httpkit.IsNonRetryableError(err))
+		assert.Contains(t, err.Error(), "5xx リトライ対象")
+	})
+
+	t.Run("ContentLength_Zero", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: 0,
+			Body:          io.NopCloser(bytes.NewBufferString("")),
+		}
+		result, err := httpkit.HandleResponse(resp)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte{}, result)
+	})
+
+	t.Run("ContentLength_ExactlyAtLimit", func(t *testing.T) {
+		body := strings.Repeat("A", int(MaxResponseBodySize))
+		resp := &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: MaxResponseBodySize,
+			Body:          io.NopCloser(bytes.NewBufferString(body)),
+		}
+		result, err := httpkit.HandleResponse(resp)
+		assert.NoError(t, err)
+		assert.Equal(t, MaxResponseBodySize, int64(len(result)))
+	})
+}
+
+// ----------------------------------------------------------------------
+// 8. IsHTTPRetryableError の追加テストケース
+// ----------------------------------------------------------------------
+
+func TestIsHTTPRetryableError_EdgeCases(t *testing.T) {
+	client := &httpkit.Client{}
+
+	t.Run("NilError", func(t *testing.T) {
+		assert.False(t, client.IsHTTPRetryableError(nil))
+	})
+
+	// 修正：errors.Is を使用するように実装が変更されたため、ラップされていても false になることを検証
+	t.Run("WrappedContextCanceled", func(t *testing.T) {
+		wrappedErr := fmt.Errorf("operation failed: %w", context.Canceled)
+		assert.False(t, client.IsHTTPRetryableError(wrappedErr), "Should correctly detect wrapped context.Canceled using errors.Is")
+	})
+
+	t.Run("NonRetryable_403Forbidden", func(t *testing.T) {
+		err := &httpkit.NonRetryableHTTPError{StatusCode: http.StatusForbidden}
+		assert.False(t, client.IsHTTPRetryableError(err))
+	})
+
+	t.Run("GenericError", func(t *testing.T) {
+		err := errors.New("connection refused")
+		assert.True(t, client.IsHTTPRetryableError(err))
 	})
 }
