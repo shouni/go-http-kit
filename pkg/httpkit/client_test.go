@@ -25,24 +25,60 @@ func TestNew_And_Options(t *testing.T) {
 	})
 }
 
-func TestClient_SecurityValidation(t *testing.T) {
+func TestClient_IsSafeURL(t *testing.T) {
 	client := httpkit.New(1 * time.Second)
 
-	t.Run("IsSafeURL", func(t *testing.T) {
-		// プライベートIPの遮断確認
-		safe, err := client.IsSafeURL("http://127.0.0.1")
-		assert.False(t, safe)
-		assert.Error(t, err)
+	// SSRF対策の網羅的なテストケース
+	testCases := []struct {
+		name   string
+		url    string
+		isSafe bool
+		hasErr bool
+	}{
+		{"Valid Public URL", "https://google.com", true, false},
+		{"Valid GCS Scheme", "gs://my-bucket/obj", true, false},
+		{"Loopback IPv4", "http://127.0.0.1", false, true},
+		{"Loopback IPv6", "http://[::1]", false, true},
+		{"Private IPv4 Class A", "http://10.0.0.1", false, true},
+		{"Private IPv4 Class B", "http://172.16.0.1", false, true},
+		{"Private IPv4 Class C", "http://192.168.1.1", false, true},
+		{"Cloud Metadata IP", "http://169.254.169.254", false, true},
+		{"Invalid Scheme", "ftp://example.com", false, true},
+		{"Malformed URL", "http://%gh&%$.com", false, true},
+	}
 
-		// 公開URLの許可確認
-		safe, err = client.IsSafeURL("https://google.com")
-		assert.True(t, safe)
-		assert.NoError(t, err)
-	})
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			safe, err := client.IsSafeURL(tc.url)
+			assert.Equal(t, tc.isSafe, safe, "URL: %s", tc.url)
+			if tc.hasErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
 
-	t.Run("IsSecureServiceURL", func(t *testing.T) {
-		assert.True(t, client.IsSecureServiceURL("https://api.example.com"))
-		assert.True(t, client.IsSecureServiceURL("http://localhost"))
-		assert.False(t, client.IsSecureServiceURL("http://unsafe-external.com"))
-	})
+func TestClient_IsSecureServiceURL(t *testing.T) {
+	client := httpkit.New(1 * time.Second)
+
+	testCases := []struct {
+		name       string
+		serviceURL string
+		expected   bool
+	}{
+		{"HTTPS is Secure", "https://api.example.com", true},
+		{"Localhost HTTP is Allowed", "http://localhost:8080", true},
+		{"Local IP HTTP is Allowed", "http://127.0.0.1:9000", true},
+		{"External HTTP is Unsafe", "http://unsafe-external.com", false},
+		{"Other Schemes are Unsafe", "ftp://files.com", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := client.IsSecureServiceURL(tc.serviceURL)
+			assert.Equal(t, tc.expected, actual, "ServiceURL: %s", tc.serviceURL)
+		})
+	}
 }

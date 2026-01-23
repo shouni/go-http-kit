@@ -39,7 +39,11 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 	// AllowInsecure が false の場合のみ SSRF 検証を実行
 	if !c.AllowInsecure {
 		if ok, err := c.IsSafeURL(urlStr); !ok {
-			return nil, fmt.Errorf("SSRF安全検証エラー: %w", err)
+			if err != nil {
+				return nil, fmt.Errorf("SSRF安全検証エラー: %w", err)
+			}
+			// IsSafeURLが(false, nil)を返した場合のフォールバック
+			return nil, fmt.Errorf("SSRF安全検証エラー: URL '%s' へのアクセスはセキュリティポリシーによりブロックされました", urlStr)
 		}
 	}
 
