@@ -33,7 +33,7 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		SkipNetworkValidation: false,
 	}
 
-	// 2. オプションの適用 (WithSkipNetworkValidation, WithHTTPClient 等)
+	// 2. オプションによる設定の上書き
 	for _, opt := range options {
 		opt(client)
 	}
