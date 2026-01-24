@@ -5,7 +5,7 @@
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/shouni/go-http-kit)](https://github.com/shouni/go-http-kit/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 💡 概要 (About) — NetArmor 統合型 HTTP 通信ライブラリ
+## 💡 概要 (About) — Net Armor統合型 HTTP 通信ライブラリ
 
 **Go Http Kit** は、[shouni/netarmor](https://github.com/shouni/netarmor) をコアに採用した、**セキュリティ強化型・リトライ機能付きHTTPクライアント**です。
 
