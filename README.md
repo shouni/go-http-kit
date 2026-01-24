@@ -1,4 +1,4 @@
-# Go Http Kit
+# ✨ Go Http Kit
 
 [![Language](https://img.shields.io/badge/Language-Go-blue)](https://golang.org/)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/shouni/go-http-kit)](https://golang.org/)
