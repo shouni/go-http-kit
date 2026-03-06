@@ -92,6 +92,20 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 // 3. 高レベルな API メソッド (ユースケース特化)
 // ----------------------------------------------------------------------
 
+// FetchStream は GET リクエストを送信し、レスポンスボディをストリームとして処理します。
+func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error {
+	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	rc, err := c.DoStreamRequest(req)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return fn(rc)
+}
+
 // FetchBytes は GET リクエストを送信し、ボディを取得します。
 func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
