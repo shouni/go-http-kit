@@ -31,7 +31,6 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
 // 成功時 (2xx) は nil を返し、エラー時は詳細情報を含めたエラーを返します。
-// 注意: パッケージプライベートとし、誤用によるリソースリークを防ぎます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return fmt.Errorf("レスポンスがnilです")
