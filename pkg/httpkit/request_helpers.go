@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/shouni/netarmor/retry"
 )
@@ -76,34 +75,4 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 
 		return fn(cloneReq)
 	})
-}
-
-// checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-func checkResponseStatus(resp *http.Response) error {
-	if resp == nil {
-		return fmt.Errorf("レスポンスがnilです")
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-
-	var bodyBytes []byte
-	var err error
-	if resp.Body != nil {
-		bodyBytes, err = io.ReadAll(io.LimitReader(resp.Body, 1024))
-		if err != nil && len(bodyBytes) == 0 {
-			bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
-		}
-	}
-
-	// エラー詳細を %q でエスケープし、不正な文字による出力を防ぐ
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %q",
-			resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
-	}
-
-	return &NonRetryableHTTPError{
-		StatusCode: resp.StatusCode,
-		Body:       bodyBytes,
-	}
 }
