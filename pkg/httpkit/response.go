@@ -14,33 +14,35 @@ import (
 // ----------------------------------------------------------------------
 
 // HandleResponse はHTTPレスポンスを処理し、成功した場合はボディをバイト配列として返します。
-// この関数は resp.Body をクローズします。
 func HandleResponse(resp *http.Response) ([]byte, error) {
 	defer resp.Body.Close()
 
-	// 1. 共通のステータスチェックロジックを呼び出し
-	if err := checkResponseStatus(resp); err != nil {
-		return nil, err
-	}
-
-	// 2. サイズ制限チェック
 	if resp.ContentLength > 0 && resp.ContentLength > MaxResponseBodySize {
 		return nil, fmt.Errorf("レスポンスボディが最大サイズ (%dバイト) を超える可能性があります (Content-Length: %d)", MaxResponseBodySize, resp.ContentLength)
 	}
 
-	// 3. 最大サイズまで読み込み
 	limitedReader := io.LimitReader(resp.Body, MaxResponseBodySize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("レスポンスボディの読み込みに失敗しました: %w", err)
 	}
 
-	// 4. 超過判定
 	if int64(len(bodyBytes)) > MaxResponseBodySize {
 		return nil, fmt.Errorf("レスポンスボディのサイズが制限値 (%dバイト) を超過しました", MaxResponseBodySize)
 	}
 
-	return bodyBytes, nil
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return bodyBytes, nil
+	}
+
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return nil, fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %q", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+
+	return nil, &NonRetryableHTTPError{
+		StatusCode: resp.StatusCode,
+		Body:       bodyBytes,
+	}
 }
 
 // IsHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
@@ -79,35 +81,4 @@ func HandleLimitedResponse(resp *http.Response, limit int64) ([]byte, error) {
 	}
 	// 成功またはボディ読み込みが部分的に成功したバイト列を返す
 	return bodyBytes, nil
-}
-
-// checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大1024バイト読み込みます。
-func checkResponseStatus(resp *http.Response) error {
-	if resp == nil {
-		return fmt.Errorf("レスポンスがnilです")
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-
-	var bodyBytes []byte
-	var err error
-	if resp.Body != nil {
-		bodyBytes, err = io.ReadAll(io.LimitReader(resp.Body, 1024))
-		if err != nil && len(bodyBytes) == 0 {
-			bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
-		}
-	}
-
-	// エラー詳細を %q でエスケープし、不正な文字による出力を防ぐ
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %q",
-			resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
-	}
-
-	return &NonRetryableHTTPError{
-		StatusCode: resp.StatusCode,
-		Body:       bodyBytes,
-	}
 }
