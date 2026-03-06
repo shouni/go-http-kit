@@ -28,17 +28,23 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 	}
 	operationName := req.Method + " " + urlStr
 
+	isFirstAttempt := true
 	return c.doWithRetry(req.Context(), operationName, func() error {
 		cloneReq := req.Clone(req.Context())
 		if req.Body != nil {
-			if req.GetBody == nil {
-				return fmt.Errorf("リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません")
+			if isFirstAttempt {
+				isFirstAttempt = false
+				// 初回は Clone された req の Body をそのまま使用する
+			} else {
+				if req.GetBody == nil {
+					return fmt.Errorf("リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません")
+				}
+				body, err := req.GetBody()
+				if err != nil {
+					return fmt.Errorf("リクエストボディの再構築に失敗: %w", err)
+				}
+				cloneReq.Body = body
 			}
-			body, err := req.GetBody()
-			if err != nil {
-				return fmt.Errorf("リクエストボディの再構築に失敗: %w", err)
-			}
-			cloneReq.Body = body
 		}
 
 		return fn(cloneReq)
