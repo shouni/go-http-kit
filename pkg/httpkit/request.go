@@ -9,37 +9,6 @@ import (
 	"net/http"
 )
 
-// makeRequest は、リクエストの構築、SSRF検証、共通ヘッダーの付与を行います。
-func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
-	// 1. SSRF 検証 (SkipNetworkValidation が false の場合のみ)
-	if !c.SkipNetworkValidation {
-		if ok, err := c.IsSafeURL(urlStr); !ok {
-			var validationErr error
-			if err != nil {
-				validationErr = err
-			} else {
-				validationErr = fmt.Errorf("URL '%s' へのアクセスはセキュリティポリシーによりブロックされました", urlStr)
-			}
-			return nil, fmt.Errorf("SSRF安全検証エラー: %w", validationErr)
-		}
-	}
-
-	// 2. リクエストの構築
-	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("HTTPリクエスト作成失敗 (method: %s, url: %s): %w", method, urlStr, err)
-	}
-
-	// 3. 共通ヘッダーの追加 (関数呼び出しを維持)
-	c.addCommonHeaders(req)
-
-	return req, nil
-}
-
-// ----------------------------------------------------------------------
-// 2. コアロジックメソッド (executeWithClone を活用)
-// ----------------------------------------------------------------------
-
 // DoRequest は、リトライ処理とレスポンスハンドリングを統合した実行コアです。
 func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 	var body []byte
@@ -54,10 +23,6 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 	})
 	return body, err
 }
-
-// ----------------------------------------------------------------------
-// 3. 高レベルな API メソッド
-// ----------------------------------------------------------------------
 
 // FetchBytes は GET リクエストを送信し、ボディを取得します。
 func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
