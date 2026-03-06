@@ -15,7 +15,7 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, err := c.Do(r)
 		if err != nil {
-			return fmt.Errorf("HTTPリクエスト失敗: %w", err)
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
 		}
 		var handleErr error
 		body, handleErr = HandleResponse(resp)

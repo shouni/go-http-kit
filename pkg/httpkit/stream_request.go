@@ -14,7 +14,7 @@ func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, err := c.Do(r)
 		if err != nil {
-			return fmt.Errorf("HTTPリクエスト失敗: %w", err)
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
 		}
 
 		if err := checkResponseStatus(resp); err != nil {
@@ -27,6 +27,9 @@ func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 	})
 
 	if err != nil {
+		if body != nil {
+			body.Close()
+		}
 		return nil, err
 	}
 	return body, nil

@@ -82,6 +82,7 @@ func HandleLimitedResponse(resp *http.Response, limit int64) ([]byte, error) {
 }
 
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
+// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大1024バイト読み込みます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return fmt.Errorf("レスポンスがnilです")
