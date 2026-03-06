@@ -2,6 +2,7 @@ package httpkit
 
 import (
 	"context"
+	"io"
 	"net/http"
 )
 
@@ -25,4 +26,9 @@ type ClientInterface interface {
 	// セキュリティ検証ユーティリティ
 	IsSafeURL(urlStr string) (bool, error)
 	IsSecureServiceURL(serviceURL string) bool
+}
+
+// StreamDownloader は URL からデータをダウンロードし、提供された関数を使用してデータ ストリームを処理するためのインターフェイスを定義します。
+type StreamDownloader interface {
+	FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error
 }
