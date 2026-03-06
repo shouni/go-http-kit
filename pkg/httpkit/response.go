@@ -14,44 +14,33 @@ import (
 // ----------------------------------------------------------------------
 
 // HandleResponse はHTTPレスポンスを処理し、成功した場合はボディをバイト配列として返します。
+// この関数は resp.Body をクローズします。
 func HandleResponse(resp *http.Response) ([]byte, error) {
 	defer resp.Body.Close()
 
-	// ContentLengthは信頼できない場合があるため、io.LimitReaderが最終的な制限となる。
-	// ただし、非常に大きなボディに対する早期リターンとして、ヘッダー値のチェックは維持する。
+	// 1. 共通のステータスチェックロジックを呼び出し
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
+	}
+
+	// 2. サイズ制限チェック
 	if resp.ContentLength > 0 && resp.ContentLength > MaxResponseBodySize {
-		// この場合、ボディを読み込まずにエラーを返す（Content-Lengthによる早期検出）
 		return nil, fmt.Errorf("レスポンスボディが最大サイズ (%dバイト) を超える可能性があります (Content-Length: %d)", MaxResponseBodySize, resp.ContentLength)
 	}
 
-	// MaxResponseBodySize + 1 バイトで制限超過を検出する
+	// 3. 最大サイズまで読み込み
 	limitedReader := io.LimitReader(resp.Body, MaxResponseBodySize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("レスポンスボディの読み込みに失敗しました: %w", err)
 	}
 
-	// 実際に読み込んだバイト数が制限値を超えているかチェック
-	// len(bodyBytes)がMaxResponseBodySize+1の場合、超過があったと判断する
+	// 4. 超過判定
 	if int64(len(bodyBytes)) > MaxResponseBodySize {
 		return nil, fmt.Errorf("レスポンスボディのサイズが制限値 (%dバイト) を超過しました", MaxResponseBodySize)
 	}
 
-	// 2xx系は成功
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return bodyBytes, nil
-	}
-
-	// 5xx 系: リトライ対象のサーバーエラー
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return nil, fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
-	}
-
-	// 4xx 系など、その他は非リトライ対象のクライアントエラー
-	return nil, &NonRetryableHTTPError{
-		StatusCode: resp.StatusCode,
-		Body:       bodyBytes,
-	}
+	return bodyBytes, nil
 }
 
 // IsHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
