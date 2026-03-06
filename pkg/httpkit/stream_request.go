@@ -18,19 +18,22 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 
 	return c.doWithRetry(req.Context(), operationName, func() error {
 		cloneReq := req.Clone(req.Context())
-		if req.Body != nil && req.GetBody != nil {
+		if req.Body != nil {
+			if req.GetBody == nil {
+				return fmt.Errorf("リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません")
+			}
 			body, err := req.GetBody()
 			if err != nil {
 				return fmt.Errorf("リクエストボディの再構築に失敗: %w", err)
 			}
 			cloneReq.Body = body
 		}
+
 		return fn(cloneReq)
 	})
 }
 
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-// 成功時 (2xx) は nil を返し、エラー時は詳細情報を含めたエラーを返します。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return fmt.Errorf("レスポンスがnilです")
@@ -48,8 +51,9 @@ func checkResponseStatus(resp *http.Response) error {
 		}
 	}
 
+	// エラー詳細を %q でエスケープし、不正な文字による出力を防ぐ
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %s",
+		return fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %q",
 			resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
@@ -97,5 +101,8 @@ func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader)
 	}
 	defer rc.Close()
 
-	return fn(rc)
+	if err := fn(rc); err != nil {
+		return fmt.Errorf("URL %q のストリーム処理に失敗しました: %w", url, err)
+	}
+	return nil
 }
