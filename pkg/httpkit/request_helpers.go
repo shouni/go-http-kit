@@ -42,6 +42,7 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 	// 将来的に Accept や共通のカスタムヘッダーを追加する場合はここで行う
 }
 
+// doWithRetry はリトライ可能なHTTP操作を実行します。
 func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
 	return retry.Do(ctx, c.RetryConfig, operationName, op, c.IsHTTPRetryableError)
 }
