@@ -52,6 +52,17 @@ func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader)
 	return nil
 }
 
+// GetStream は GET リクエストを送信し、レスポンスボディをストリームとして返します。
+func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, error) {
+	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// 既存の DoStreamRequest を活用する
+	return c.DoStreamRequest(req)
+}
+
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
 // エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大1024バイト読み込みます。
 func checkResponseStatus(resp *http.Response) error {
