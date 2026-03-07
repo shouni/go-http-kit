@@ -28,9 +28,6 @@ func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 	})
 
 	if err != nil {
-		if body != nil {
-			body.Close()
-		}
 		return nil, err
 	}
 	return body, nil

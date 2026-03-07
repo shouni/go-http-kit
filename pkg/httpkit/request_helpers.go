@@ -49,6 +49,9 @@ func (c *Client) doWithRetry(ctx context.Context, operationName string, op func(
 
 // executeWithClone はリクエストをクローンしてリトライを実行する共通ロジックです。
 func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) error) error {
+	if req == nil {
+		return fmt.Errorf("リクエストがnilです")
+	}
 	urlStr := ""
 	if req.URL != nil {
 		urlStr = req.URL.String()
