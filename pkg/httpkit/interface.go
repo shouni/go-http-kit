@@ -32,7 +32,7 @@ type URLValidator interface {
 	IsSecureServiceURL(serviceURL string) bool
 }
 
-// HTTPClient は httpkit が提供する全機能のインターフェースです。
+// HTTPClient は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
 type HTTPClient interface {
 	Doer
 	RequestExecutor
