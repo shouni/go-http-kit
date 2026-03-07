@@ -11,8 +11,8 @@ type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// HTTPClient HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
-type HTTPClient interface {
+// RequestExecutor は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
+type RequestExecutor interface {
 	DoRequest(req *http.Request) ([]byte, error)
 	FetchBytes(ctx context.Context, url string) ([]byte, error)
 	FetchAndDecodeJSON(ctx context.Context, url string, v any) error
@@ -32,10 +32,10 @@ type URLValidator interface {
 	IsSecureServiceURL(serviceURL string) bool
 }
 
-// ClientInterface は httpkit.Client が提供する全機能のインターフェースです。
-type ClientInterface interface {
+// HTTPClient は httpkit が提供する全機能のインターフェースです。
+type HTTPClient interface {
 	Doer
-	HTTPClient
+	RequestExecutor
 	StreamDownloader
 	URLValidator
 }
