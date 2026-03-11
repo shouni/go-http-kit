@@ -11,7 +11,7 @@ type ClientOption func(*Client)
 // テスト時にモックを注入したり、既存の http.Client を再利用したい場合に使用します。
 func WithHTTPClient(client Doer) ClientOption {
 	return func(c *Client) {
-		c.httpClient = client
+		c.HttpClient = client
 	}
 }
 
