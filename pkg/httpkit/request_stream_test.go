@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestClient は Client 構造体のプライベートフィールド httpClient に合わせて調整しました。
@@ -20,7 +23,7 @@ func newTestClient(server *httptest.Server) *Client {
 func TestFetchStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("stream-data"))
+		_, _ = w.Write([]byte("stream-data"))
 	}))
 	defer server.Close()
 
@@ -29,34 +32,26 @@ func TestFetchStream(t *testing.T) {
 	t.Run("正常系: ストリームが正しく処理される", func(t *testing.T) {
 		err := c.FetchStream(context.Background(), server.URL, func(rc io.Reader) error {
 			data, err := io.ReadAll(rc)
-			if err != nil {
-				return err
-			}
-			if string(data) != "stream-data" {
-				t.Errorf("期待値と異なります: %s", string(data))
-			}
+			require.NoError(t, err, "ストリームの読み込みに失敗しました")
+
+			assert.Equal(t, "stream-data", string(data), "期待値と異なります")
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("エラーが発生しました: %v", err)
-		}
+		require.NoError(t, err, "FetchStreamで予期せぬエラーが発生しました")
 	})
 
 	t.Run("異常系: サーバーが500エラーを返す", func(t *testing.T) {
 		server500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("server error"))
+			_, _ = w.Write([]byte("server error"))
 		}))
 		defer server500.Close()
 
 		c500 := newTestClient(server500)
-		// 5xx は checkResponseStatus でエラーを返すため、FetchStream はエラーを返すべき
 		err := c500.FetchStream(context.Background(), server500.URL, func(rc io.Reader) error {
 			return nil
 		})
-		if err == nil {
-			t.Fatal("5xxエラー時にエラーが返ることを期待していましたがnilでした")
-		}
+		assert.Error(t, err, "5xxエラー時にエラーが返ることを期待していましたがnilでした")
 	})
 }
 
@@ -78,10 +73,11 @@ func TestCheckResponseStatus(t *testing.T) {
 				StatusCode: tt.statusCode,
 				Body:       io.NopCloser(strings.NewReader(tt.body)),
 			}
-			// checkResponseStatus はパッケージ内関数として呼び出し可能
 			err := checkResponseStatus(resp)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("checkResponseStatus() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
