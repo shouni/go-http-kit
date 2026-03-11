@@ -12,7 +12,7 @@ import (
 // newTestClient は Client 構造体のプライベートフィールド httpClient に合わせて調整しました。
 func newTestClient(server *httptest.Server) *Client {
 	return &Client{
-		HttpClient:            server.Client(),
+		httpClient:            server.Client(),
 		SkipNetworkValidation: true,
 	}
 }

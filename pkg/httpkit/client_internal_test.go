@@ -12,7 +12,7 @@ import (
 func TestNew_ImplementationSwitch(t *testing.T) {
 	t.Run("Default should use SafeHTTPClient (with custom DialContext)", func(t *testing.T) {
 		client := New(1 * time.Second)
-		hc, ok := client.HttpClient.(*http.Client)
+		hc, ok := client.httpClient.(*http.Client)
 		require.True(t, ok)
 
 		// securenet.NewSafeHTTPClient は必ず独自の Transport を生成してセットする
@@ -25,7 +25,7 @@ func TestNew_ImplementationSwitch(t *testing.T) {
 
 	t.Run("SkipNetworkValidation should use standard http.Client (with no custom Transport)", func(t *testing.T) {
 		client := New(1*time.Second, WithSkipNetworkValidation(true))
-		hc, ok := client.HttpClient.(*http.Client)
+		hc, ok := client.httpClient.(*http.Client)
 		require.True(t, ok)
 
 		// 標準の &http.Client{Timeout: timeout} は Transport フィールドが nil。

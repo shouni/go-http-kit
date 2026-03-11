@@ -15,7 +15,7 @@ import (
 // Client はHTTPリクエスト、指数バックオフを用いたリトライ、
 // および SSRF 対策などのネットワーク検証を管理します。
 type Client struct {
-	HttpClient            Doer
+	httpClient            Doer
 	RetryConfig           retry.Config
 	SkipNetworkValidation bool
 }
@@ -46,16 +46,16 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 
 // ensureHTTPClient は、httpClient が未設定の場合に、設定に基づいてデフォルトのクライアントを構築します。
 func (c *Client) ensureHTTPClient(timeout time.Duration) {
-	if c.HttpClient != nil {
+	if c.httpClient != nil {
 		return // WithHTTPClient 等で既に注入済みの場合は何もしない
 	}
 
 	if c.SkipNetworkValidation {
 		// 内部通信などを許可する標準のクライアント
-		c.HttpClient = &http.Client{Timeout: timeout}
+		c.httpClient = &http.Client{Timeout: timeout}
 	} else {
 		// securenet による動的バリデーション（SSRF/DNS Rebinding対策）付きクライアント
-		c.HttpClient = securenet.NewSafeHTTPClient(timeout)
+		c.httpClient = securenet.NewSafeHTTPClient(timeout)
 	}
 }
 
@@ -65,7 +65,7 @@ func (c *Client) ensureHTTPClient(timeout time.Duration) {
 
 // Do は Doer インターフェースを実装します。リトライロジックは適用されません。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	return c.HttpClient.Do(req)
+	return c.httpClient.Do(req)
 }
 
 // IsSafeURL は URL が SSRF の観点で安全か判定します。
