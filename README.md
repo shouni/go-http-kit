@@ -50,7 +50,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/shouni/go-http-kit/pkg/httpkit"
+    "github.com/shouni/go-http-kit/httpkit"
 )
 
 func main() {
@@ -86,18 +86,35 @@ func main() {
 
 ---
 
-## 🛠️ 開発者向け情報
+## 📐 ライブラリ構成
 
-### パッケージ構成
+このライブラリは、標準の `net/http` を拡張し、実務で必要なリトライ処理やストリーミング、型安全なリクエスト/レスポンス操作を直感的に提供します。
 
-| ファイル名 | 役割 |
+```text
+go-http-kit
+└── httpkit/               # HTTP クライアントのコア機能
+    ├── interface.go       # Doer / ClientInterface の定義
+    ├── client.go          # リトライ・クローン機能を備えた HTTP クライアント実装
+    ├── request.go         # JSON/RawBody 等のリクエスト構築ロジック
+    ├── request_stream.go  # ストリーミングアップロード対応のリクエスト処理
+    ├── response.go        # レスポンスのデコード・ステータスチェック
+    ├── options.go         # タイムアウトやリトライ回数等の設定管理
+    ├── error.go           # HTTP ステータスに基づくカスタムエラー定義
+    ├── request_helpers.go # GET/POST 等の簡易実行ヘルパー
+    └── const.go           # 共通で使用する定数（ContentType 等）
+```
+
+### パッケージの設計方針
+
+| ファイル | 役割説明 |
 | :--- | :--- |
-| `pkg/httpkit/interface.go` | `Doer` および `ClientInterface` の定義。 |
-| `pkg/httpkit/client.go` | `Client` 本体、コンストラクタ、セキュリティ検証メソッド。 |
-| `pkg/httpkit/options.go` | `SkipNetworkValidation` などの各種設定オプション。 |
-| `pkg/httpkit/request.go` | リトライ実行コア (`DoRequest`) および高レベル API 群。 |
-| `pkg/httpkit/response.go` | レスポンス処理、サイズ制限、エラー判定。 |
-| `pkg/httpkit/error.go` | カスタムエラー型とリトライ可否の判定ロジック。 |
+| **`interface.go`** | **抽象化レイヤー**。標準 `http.Client` との互換性を保ちつつ、高機能な操作を定義します。 |
+| **`client.go`** | **実行エンジン**。指数バックオフリトライや、リクエストボディの再構築（GetBody）を制御します。 |
+| **`request.go`** | **型安全な送信**。構造体からの JSON 生成や、適切な Content-Type の付与を自動化します。 |
+| **`response.go`** | **直感的な受信**。ステータスコードの検証から構造体へのデコードまでを一気通貫で処理します。 |
+| **`error.go`** | **デバッグ性の向上**。一時的なエラー（5xx）と永続的なエラー（4xx）を判別し、リトライ要否を制御します。 |
+
+---
 
 ## 🤝 依存関係 (Dependencies)
 

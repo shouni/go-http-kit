@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shouni/go-http-kit/pkg/httpkit"
+	"github.com/shouni/go-http-kit/httpkit"
 	"github.com/stretchr/testify/assert"
 )
 
