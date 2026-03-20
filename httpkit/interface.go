@@ -11,8 +11,8 @@ type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// RequestExecutor は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
-type RequestExecutor interface {
+// Requester は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
+type Requester interface {
 	DoRequest(req *http.Request) ([]byte, error)
 	FetchBytes(ctx context.Context, url string) ([]byte, error)
 	FetchAndDecodeJSON(ctx context.Context, url string, v any) error
@@ -20,8 +20,8 @@ type RequestExecutor interface {
 	PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error)
 }
 
-// StreamDownloader は URL からデータをダウンロードし、提供された関数を使用してデータ ストリームを処理するためのインターフェイスを定義します。
-type StreamDownloader interface {
+// Downloader は URL からデータをダウンロードし、提供された関数を使用してデータ ストリームを処理するためのインターフェイスを定義します。
+type Downloader interface {
 	FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error
 	GetStream(ctx context.Context, url string) (io.ReadCloser, error)
 }
@@ -35,7 +35,7 @@ type URLValidator interface {
 // HTTPClient は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
 type HTTPClient interface {
 	Doer
-	RequestExecutor
-	StreamDownloader
+	Requester
+	Downloader
 	URLValidator
 }
