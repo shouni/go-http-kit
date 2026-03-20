@@ -7,7 +7,7 @@
 
 ## 💡 概要 (About) — Net Armor統合型 HTTP 通信ライブラリ
 
-`go-http-kit` は、エンタープライズ級の安全性と信頼性を備えた、Go言語向けの次世代 HTTP クライアントライブラリです。単なるリクエスト送信ツールではなく、「**防御**（Net Armor）」と「**回復**（Retry）」**をコアに据えた設計になっています。
+**Go Http Kit** は、エンタープライズ級の安全性と信頼性を備えた、HTTP クライアントライブラリです。単なるリクエスト送信ツールではなく、「**防御**（Net Armor）」と「**回復**（Retry）」をコアに据えた設計になっています。
 
 ### 🛡️ Net Armor (Security-First)
 SSRF (Server-Side Request Forgery) などのネットワーク脆弱性からアプリケーションを保護します。
