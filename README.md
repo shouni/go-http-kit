@@ -4,6 +4,9 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/shouni/go-http-kit)](https://golang.org/)
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/shouni/go-http-kit)](https://github.com/shouni/go-http-kit/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Report Card](https://goreportcard.com/badge/github.com/shouni/go-http-kit)](https://goreportcard.com/report/github.com/shouni/go-http-kit)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shouni/go-http-kit.svg)](https://pkg.go.dev/github.com/shouni/go-http-kit)
+[![Status](https://img.shields.io/badge/Status-Completed-brightgreen)](#)
 
 ## 💡 概要 (About) — Net Armor統合型 HTTP 通信ライブラリ
 
