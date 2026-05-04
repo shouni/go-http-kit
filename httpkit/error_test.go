@@ -37,11 +37,12 @@ func TestIsHTTPRetryableError(t *testing.T) {
 	t.Run("RetryableErrors", func(t *testing.T) {
 		assert.True(t, client.IsHTTPRetryableError(&httpkit.RetryableHTTPError{StatusCode: http.StatusInternalServerError}))
 		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("request failed: %w", timeoutNetError{})))
+		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("request failed: %w", temporaryNetError{})))
+		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("request failed: %w", io.EOF)))
+		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("plain error")))
 	})
 
 	t.Run("PermanentErrors", func(t *testing.T) {
-		assert.False(t, client.IsHTTPRetryableError(fmt.Errorf("plain error")))
-		assert.False(t, client.IsHTTPRetryableError(fmt.Errorf("request failed: %w", temporaryNetError{})))
 		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrNilResponse))
 		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrNilResponseBody))
 		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrResponseBodyTooLarge))

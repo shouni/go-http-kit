@@ -1,10 +1,10 @@
 package httpkit
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // ----------------------------------------------------------------------
@@ -74,7 +74,7 @@ func formatHTTPError(prefix string, statusCode int, body []byte) string {
 }
 
 func formatBodyForError(body []byte) string {
-	displayBody := strings.TrimSpace(string(body))
+	displayBody := string(bytes.TrimSpace(body))
 	runes := []rune(displayBody)
 	if len(runes) > MaxBodyDisplaySize {
 		displayBody = string(runes[:MaxBodyDisplaySize]) + "..."

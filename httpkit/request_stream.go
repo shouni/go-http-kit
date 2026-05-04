@@ -1,11 +1,11 @@
 package httpkit
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // DoStreamRequest はレスポンスボディ (io.ReadCloser) を返します。
@@ -75,23 +75,24 @@ func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return ErrNilResponse
 	}
+	if resp.Body == nil {
+		return ErrNilResponseBody
+	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
 
 	var bodyBytes []byte
 	var err error
-	if resp.Body != nil {
-		bodyBytes, err = io.ReadAll(io.LimitReader(resp.Body, 1024))
-		if err != nil && len(bodyBytes) == 0 {
-			bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
-		}
+	bodyBytes, err = io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil && len(bodyBytes) == 0 {
+		bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
 	}
 
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 		return &RetryableHTTPError{
 			StatusCode: resp.StatusCode,
-			Body:       []byte(strings.TrimSpace(string(bodyBytes))),
+			Body:       bytes.TrimSpace(bodyBytes),
 		}
 	}
 

@@ -31,6 +31,16 @@ func newTestClient(server *httptest.Server) *Client {
 	)
 }
 
+func newTestClientWithDoer(doer Doer) *Client {
+	return New(1*time.Second,
+		WithHTTPClient(doer),
+		WithSkipNetworkValidation(true),
+		WithMaxRetries(1),
+		WithInitialInterval(1*time.Millisecond),
+		WithMaxInterval(1*time.Millisecond),
+	)
+}
+
 func TestFetchStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -67,6 +77,12 @@ func TestFetchStream(t *testing.T) {
 }
 
 func TestCheckResponseStatus(t *testing.T) {
+	t.Run("NilBody", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusInternalServerError}
+		err := checkResponseStatus(resp)
+		assert.ErrorIs(t, err, ErrNilResponseBody)
+	})
+
 	tests := []struct {
 		name       string
 		statusCode int
@@ -99,11 +115,9 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("NilResponse", func(t *testing.T) {
-		c := &Client{
-			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
-				return nil, nil
-			}),
-		}
+		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, nil
+		}))
 
 		rc, err := c.DoStreamRequest(req)
 		assert.Nil(t, rc)
@@ -111,11 +125,9 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 	})
 
 	t.Run("NilBody", func(t *testing.T) {
-		c := &Client{
-			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: http.StatusOK}, nil
-			}),
-		}
+		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK}, nil
+		}))
 
 		rc, err := c.DoStreamRequest(req)
 		assert.Nil(t, rc)
@@ -124,11 +136,9 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 
 	t.Run("DoError", func(t *testing.T) {
 		wantErr := errors.New("temporary")
-		c := &Client{
-			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
-				return nil, wantErr
-			}),
-		}
+		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, wantErr
+		}))
 
 		rc, err := c.DoStreamRequest(req)
 		assert.Nil(t, rc)
