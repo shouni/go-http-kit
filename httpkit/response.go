@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 )
 
@@ -91,16 +90,12 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 		return false
 	}
 
-	// 4. 5xxエラーやタイムアウト系のネットワークエラーをリトライ対象とする
+	// 4. 5xxエラーをリトライ対象とする
 	if IsRetryableHTTPError(err) {
 		return true
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
 
-	// 明示的に非リトライと判定したもの以外は、一時的な通信エラーの可能性を考慮してリトライする。
+	// 明示的に非リトライと判定したもの以外は、一時的な通信エラー（タイムアウト等）の可能性を考慮してリトライする。
 	return true
 }
 
