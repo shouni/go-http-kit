@@ -17,9 +17,15 @@ func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 		if err != nil {
 			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
 		}
+		if resp == nil {
+			return ErrNilResponse
+		}
+		if resp.Body == nil {
+			return ErrNilResponseBody
+		}
 
 		if err := checkResponseStatus(resp); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return err
 		}
 
@@ -67,7 +73,7 @@ func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, erro
 // エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大1024バイト読み込みます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
-		return fmt.Errorf("レスポンスがnilです")
+		return ErrNilResponse
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -82,10 +88,11 @@ func checkResponseStatus(resp *http.Response) error {
 		}
 	}
 
-	// エラー詳細を %q でエスケープし、不正な文字による出力を防ぐ
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return fmt.Errorf("HTTPステータスコードエラー (5xx リトライ対象): %d, 詳細: %q",
-			resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		return &RetryableHTTPError{
+			StatusCode: resp.StatusCode,
+			Body:       []byte(strings.TrimSpace(string(bodyBytes))),
+		}
 	}
 
 	return &NonRetryableHTTPError{

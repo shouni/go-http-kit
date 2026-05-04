@@ -2,22 +2,33 @@ package httpkit
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// newTestClient は Client 構造体のプライベートフィールド httpClient に合わせて調整しました。
+type doerFunc func(*http.Request) (*http.Response, error)
+
+func (f doerFunc) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+// newTestClient はテストが実際のバックオフ待ちを踏まない設定で Client を作成します。
 func newTestClient(server *httptest.Server) *Client {
-	return &Client{
-		httpClient:            server.Client(),
-		SkipNetworkValidation: true,
-	}
+	return New(1*time.Second,
+		WithHTTPClient(server.Client()),
+		WithSkipNetworkValidation(true),
+		WithMaxRetries(1),
+		WithInitialInterval(1*time.Millisecond),
+		WithMaxInterval(1*time.Millisecond),
+	)
 }
 
 func TestFetchStream(t *testing.T) {
@@ -81,4 +92,46 @@ func TestCheckResponseStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", nil)
+	require.NoError(t, err)
+
+	t.Run("NilResponse", func(t *testing.T) {
+		c := &Client{
+			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, nil
+			}),
+		}
+
+		rc, err := c.DoStreamRequest(req)
+		assert.Nil(t, rc)
+		assert.ErrorIs(t, err, ErrNilResponse)
+	})
+
+	t.Run("NilBody", func(t *testing.T) {
+		c := &Client{
+			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK}, nil
+			}),
+		}
+
+		rc, err := c.DoStreamRequest(req)
+		assert.Nil(t, rc)
+		assert.ErrorIs(t, err, ErrNilResponseBody)
+	})
+
+	t.Run("DoError", func(t *testing.T) {
+		wantErr := errors.New("temporary")
+		c := &Client{
+			httpClient: doerFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, wantErr
+			}),
+		}
+
+		rc, err := c.DoStreamRequest(req)
+		assert.Nil(t, rc)
+		assert.ErrorIs(t, err, wantErr)
+	})
 }
