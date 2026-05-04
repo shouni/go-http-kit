@@ -63,11 +63,11 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 		cloneReq := req.Clone(req.Context())
 		if !isFirstAttempt && req.Body != nil {
 			if req.GetBody == nil {
-				return fmt.Errorf("リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません")
+				return fmt.Errorf("%w: リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません", ErrRequestBodyNotReplayable)
 			}
 			body, err := req.GetBody()
 			if err != nil {
-				return fmt.Errorf("リクエストボディの再構築に失敗: %w", err)
+				return fmt.Errorf("%w: %w", ErrRequestBodyRebuild, err)
 			}
 			cloneReq.Body = body
 		}
