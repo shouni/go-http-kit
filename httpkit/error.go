@@ -34,10 +34,7 @@ type RetryableHTTPError struct {
 
 // Error は RetryableHTTPError のエラーメッセージを返します。
 func (e *RetryableHTTPError) Error() string {
-	if len(e.Body) > 0 {
-		return fmt.Sprintf("HTTPサーバーエラー (リトライ対象): ステータスコード %d, ボディ: %s", e.StatusCode, formatBodyForError(e.Body))
-	}
-	return fmt.Sprintf("HTTPサーバーエラー (リトライ対象): ステータスコード %d, ボディなし", e.StatusCode)
+	return formatHTTPError("HTTPサーバーエラー (リトライ対象)", e.StatusCode, e.Body)
 }
 
 // NonRetryableHTTPError はHTTP 4xx系のステータスコードエラーを示すカスタムエラー型です。
@@ -48,10 +45,7 @@ type NonRetryableHTTPError struct {
 
 // Error は NonRetryableHTTPError のエラーメッセージを返します。
 func (e *NonRetryableHTTPError) Error() string {
-	if len(e.Body) > 0 {
-		return fmt.Sprintf("HTTPクライアントエラー (非リトライ対象): ステータスコード %d, ボディ: %s", e.StatusCode, formatBodyForError(e.Body))
-	}
-	return fmt.Sprintf("HTTPクライアントエラー (非リトライ対象): ステータスコード %d, ボディなし", e.StatusCode)
+	return formatHTTPError("HTTPクライアントエラー (非リトライ対象)", e.StatusCode, e.Body)
 }
 
 // IsRetryableHTTPError は与えられたエラーがリトライ対象のHTTPエラーであるかを判断します。
@@ -70,6 +64,13 @@ func IsNonRetryableError(err error) bool {
 	}
 	var nonRetryable *NonRetryableHTTPError
 	return errors.As(err, &nonRetryable)
+}
+
+func formatHTTPError(prefix string, statusCode int, body []byte) string {
+	if len(body) > 0 {
+		return fmt.Sprintf("%s: ステータスコード %d, ボディ: %s", prefix, statusCode, formatBodyForError(body))
+	}
+	return fmt.Sprintf("%s: ステータスコード %d, ボディなし", prefix, statusCode)
 }
 
 func formatBodyForError(body []byte) string {

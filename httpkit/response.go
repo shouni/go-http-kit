@@ -91,12 +91,12 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 		return false
 	}
 
-	// 4. 5xxエラーや一時的なネットワークエラーのみリトライ対象とする
+	// 4. 5xxエラーやタイムアウト系のネットワークエラーのみリトライ対象とする
 	if IsRetryableHTTPError(err) {
 		return true
 	}
 	var netErr net.Error
-	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // HandleLimitedResponse は、指定されたレスポンスボディを、最大サイズに制限して読み込みます。

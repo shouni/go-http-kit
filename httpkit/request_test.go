@@ -18,16 +18,22 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 
 	t.Run("SuccessAfterRetry", func(t *testing.T) {
 		mock := &MockDoer{
-			Errors: []error{temporaryNetError{}},
+			Errors: []error{timeoutNetError{}},
 			Responses: []*http.Response{
 				nil,
 				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
 			},
 		}
-		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock), httpkit.WithInitialInterval(1*time.Millisecond))
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithMaxRetries(1),
+			httpkit.WithInitialInterval(1*time.Millisecond),
+			httpkit.WithMaxInterval(1*time.Millisecond),
+		)
 
 		res, err := client.FetchBytes(ctx, "https://example.com")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, []byte("recovered"), res)
 		assert.Equal(t, 2, mock.CallCount)
 	})
