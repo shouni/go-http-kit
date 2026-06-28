@@ -39,7 +39,10 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 // addCommonHeaders はすべてのリクエストに共通のHTTPヘッダーを設定します。
 func (c *Client) addCommonHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", UserAgent)
-	// 将来的に Accept や共通のカスタムヘッダーを追加する場合はここで行う
+	req.Header.Set("Accept-Language", acceptLanguage)
+	req.Header.Set("sec-ch-ua", secChUA)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
 }
 
 // doWithRetry はリトライ可能なHTTP操作を実行します。

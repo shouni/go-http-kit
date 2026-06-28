@@ -16,5 +16,10 @@ const (
 	// MaxBodyDisplaySize は、エラーメッセージ内でレスポンスボディを表示する際の最大文字数です。
 	MaxBodyDisplaySize = 1024 // 1KB
 	// UserAgent は、サイトからのブロックを避けるためのUser-Agentです。
-	UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+	UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
+	// secChUA は Chrome 136 の Client Hints ヘッダー値です。
+	secChUA = `"Google Chrome";v="136", "Not A(Brand";v="99", "Chromium";v="136"`
+	// acceptLanguage は日本語サイトを主対象とした Accept-Language 値です。
+	acceptLanguage = "ja,en-US;q=0.9,en;q=0.8"
 )
