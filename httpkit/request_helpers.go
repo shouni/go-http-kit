@@ -39,8 +39,8 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 // addCommonHeaders はすべてのリクエストに共通のHTTPヘッダーを設定します。
 func (c *Client) addCommonHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Accept-Language", acceptLanguage)
-	req.Header.Set("sec-ch-ua", secChUA)
+	req.Header.Set("Accept-Language", AcceptLanguage)
+	req.Header.Set("sec-ch-ua", SecChUA)
 	req.Header.Set("sec-ch-ua-mobile", "?0")
 	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
 }
