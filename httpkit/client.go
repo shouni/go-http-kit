@@ -18,6 +18,7 @@ type Client struct {
 	httpClient            Doer
 	RetryConfig           retry.Config
 	SkipNetworkValidation bool
+	DisableRetry          bool
 }
 
 // New は新しいClientを初期化します。

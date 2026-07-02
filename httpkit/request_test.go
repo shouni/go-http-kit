@@ -49,6 +49,51 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 	})
 }
 
+func TestClient_WithNoRetry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("DoesNotRetryOnTransientError", func(t *testing.T) {
+		mock := &MockDoer{
+			Errors: []error{timeoutNetError{}},
+			Responses: []*http.Response{
+				nil,
+				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
+			},
+		}
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithNoRetry(),
+		)
+
+		_, err := client.FetchBytes(ctx, "https://example.com")
+		assert.Error(t, err, "リトライが無効な場合、最初の一時的エラーがそのまま返るはず")
+		assert.Equal(t, 1, mock.CallCount, "リトライされず1回だけ呼ばれるはず")
+	})
+
+	t.Run("DoesNotRetryOn5xx", func(t *testing.T) {
+		var mock *MockDoer
+		mock = &MockDoer{
+			CustomDo: func(req *http.Request) (*http.Response, error) {
+				mock.CallCount++
+				return &http.Response{
+					StatusCode: http.StatusServiceUnavailable,
+					Body:       io.NopCloser(bytes.NewBufferString("unavailable")),
+				}, nil
+			},
+		}
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithNoRetry(),
+		)
+
+		_, err := client.PostRawBodyAndFetchBytes(ctx, "https://example.com/jobs", []byte("body"), "text/plain")
+		assert.Error(t, err)
+		assert.Equal(t, 1, mock.CallCount, "非冪等なPOSTは5xxでもリトライされず1回だけ呼ばれるはず")
+	})
+}
+
 func TestClient_PublicRequestAPIs(t *testing.T) {
 	ctx := context.Background()
 

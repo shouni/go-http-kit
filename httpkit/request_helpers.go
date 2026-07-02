@@ -46,7 +46,11 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 }
 
 // doWithRetry はリトライ可能なHTTP操作を実行します。
+// DisableRetry が設定されている場合は、リトライを行わず一度だけ実行します。
 func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
+	if c.DisableRetry {
+		return op()
+	}
 	return retry.Do(ctx, c.RetryConfig, operationName, op, c.IsHTTPRetryableError)
 }
 

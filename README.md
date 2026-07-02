@@ -85,6 +85,16 @@ client := httpkit.New(
 
 `WithHTTPClient` を使う場合も、`FetchBytes` などの helper は `makeRequest` で URL 事前検証を行います。内部ネットワーク向けの custom client と組み合わせる場合は `WithSkipNetworkValidation(true)` も指定してください。
 
+ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` は「未設定」として扱われデフォルト値にフォールバックするため、リトライを無効化する目的では使えません。
+
+```go
+client := httpkit.New(
+    10*time.Second,
+    httpkit.WithHTTPClient(httpClient),
+    httpkit.WithNoRetry(),
+)
+```
+
 ## Request Helpers
 
 ### GET bytes
