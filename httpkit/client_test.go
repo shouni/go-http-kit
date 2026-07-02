@@ -23,6 +23,14 @@ func TestNew_And_Options(t *testing.T) {
 		assert.Equal(t, uint64(5), client.RetryConfig.MaxRetries)
 		assert.True(t, client.SkipNetworkValidation)
 	})
+
+	t.Run("WithNoRetry", func(t *testing.T) {
+		client := httpkit.New(1 * time.Second)
+		assert.False(t, client.DisableRetry)
+
+		client = httpkit.New(1*time.Second, httpkit.WithNoRetry())
+		assert.True(t, client.DisableRetry)
+	})
 }
 
 func TestClient_IsSafeURL(t *testing.T) {
