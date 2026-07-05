@@ -207,7 +207,7 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 
 		rc, err := client.GetStream(ctx, "https://example.com/stream")
 		require.NoError(t, err)
-		defer func() { _ = rc.Close() }()
+		defer rc.Close()
 
 		data, err := io.ReadAll(rc)
 		require.NoError(t, err)

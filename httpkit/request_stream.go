@@ -49,7 +49,7 @@ func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = rc.Close() }()
+	defer rc.Close()
 
 	if err := fn(rc); err != nil {
 		return fmt.Errorf("URL %q のストリーム処理に失敗しました: %w", url, err)

@@ -12,6 +12,10 @@ linters:
     - unused
     - gocritic
     - revive
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.ReadCloser).Close
 
 formatters:
   enable:

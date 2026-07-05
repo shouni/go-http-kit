@@ -51,16 +51,17 @@ func (e *NonRetryableHTTPError) Error() string {
 // classifyStatusError は、HTTPステータスコードとレスポンスボディから、
 // リトライ対象/非対象のHTTPエラーを分類します。2xxの場合は nil を返します。
 // レスポンスボディの分類ルールを一箇所に集約し、呼び出し側での定義のズレを防ぎます。
+// Body はそのまま保持し、表示用の整形は Error() 経由の formatBodyForError に任せます
+// （呼び出し側が生データを参照する可能性があるため、ここではトリムしません）。
 func classifyStatusError(statusCode int, body []byte) error {
 	if statusCode >= 200 && statusCode < 300 {
 		return nil
 	}
 
-	trimmedBody := bytes.TrimSpace(body)
 	if statusCode >= 500 && statusCode <= 599 {
-		return &RetryableHTTPError{StatusCode: statusCode, Body: trimmedBody}
+		return &RetryableHTTPError{StatusCode: statusCode, Body: body}
 	}
-	return &NonRetryableHTTPError{StatusCode: statusCode, Body: trimmedBody}
+	return &NonRetryableHTTPError{StatusCode: statusCode, Body: body}
 }
 
 // IsRetryableHTTPError は与えられたエラーがリトライ対象のHTTPエラーであるかを判断します。
