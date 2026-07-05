@@ -20,7 +20,7 @@ func HandleResponse(resp *http.Response) ([]byte, error) {
 	if resp.Body == nil {
 		return nil, ErrNilResponseBody
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// ContentLengthは信頼できない場合があるため、io.LimitReaderが最終的な制限となる。
 	// ただし、非常に大きなボディに対する早期リターンとして、ヘッダー値のチェックは維持する。
@@ -108,7 +108,7 @@ func HandleLimitedResponse(resp *http.Response, limit int64) ([]byte, error) {
 	if resp.Body == nil {
 		return nil, ErrNilResponseBody
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limitedReader := io.LimitReader(resp.Body, limit)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {

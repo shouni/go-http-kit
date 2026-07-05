@@ -42,7 +42,7 @@ func newTestClientWithDoer(doer Doer) *Client {
 }
 
 func TestFetchStream(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("stream-data"))
 	}))
@@ -62,14 +62,14 @@ func TestFetchStream(t *testing.T) {
 	})
 
 	t.Run("異常系: サーバーが500エラーを返す", func(t *testing.T) {
-		server500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("server error"))
 		}))
 		defer server500.Close()
 
 		c500 := newTestClient(server500)
-		err := c500.FetchStream(context.Background(), server500.URL, func(rc io.Reader) error {
+		err := c500.FetchStream(context.Background(), server500.URL, func(_ io.Reader) error {
 			return nil
 		})
 		assert.Error(t, err, "5xxエラー時にエラーが返ることを期待していましたがnilでした")
@@ -115,7 +115,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("NilResponse", func(t *testing.T) {
-		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+		c := newTestClientWithDoer(doerFunc(func(_ *http.Request) (*http.Response, error) {
 			return nil, nil
 		}))
 
@@ -125,7 +125,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 	})
 
 	t.Run("NilBody", func(t *testing.T) {
-		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+		c := newTestClientWithDoer(doerFunc(func(_ *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK}, nil
 		}))
 
@@ -136,7 +136,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 
 	t.Run("DoError", func(t *testing.T) {
 		wantErr := errors.New("temporary")
-		c := newTestClientWithDoer(doerFunc(func(req *http.Request) (*http.Response, error) {
+		c := newTestClientWithDoer(doerFunc(func(_ *http.Request) (*http.Response, error) {
 			return nil, wantErr
 		}))
 

@@ -74,7 +74,7 @@ func TestClient_WithNoRetry(t *testing.T) {
 	t.Run("DoesNotRetryOn5xx", func(t *testing.T) {
 		var mock *MockDoer
 		mock = &MockDoer{
-			CustomDo: func(req *http.Request) (*http.Response, error) {
+			CustomDo: func(_ *http.Request) (*http.Response, error) {
 				mock.CallCount++
 				return &http.Response{
 					StatusCode: http.StatusServiceUnavailable,
@@ -207,7 +207,7 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 
 		rc, err := client.GetStream(ctx, "https://example.com/stream")
 		require.NoError(t, err)
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 
 		data, err := io.ReadAll(rc)
 		require.NoError(t, err)

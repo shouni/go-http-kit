@@ -1,3 +1,5 @@
+// Package httpkit は、リトライ・タイムアウト・SSRF対策済みの安全なトランスポートを
+// 備えたHTTPクライアントと、リクエスト/レスポンスの補助関数を提供します。
 package httpkit
 
 import (
