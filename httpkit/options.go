@@ -21,13 +21,13 @@ func WithHTTPClient(client Doer) ClientOption {
 // 注意: retry.Config.MaxRetries フィールド自体は 0 を「未設定」として扱い
 // デフォルト値にフォールバックしますが、このオプション経由で 0 を渡した場合は
 // 明示的な意思表示とみなし DisableRetry を設定することで、直感的な挙動にしています。
-func WithMaxRetries(max uint64) ClientOption {
+func WithMaxRetries(maxRetries uint64) ClientOption {
 	return func(c *Client) {
-		if max == 0 {
+		if maxRetries == 0 {
 			c.DisableRetry = true
 			return
 		}
-		c.RetryConfig.MaxRetries = max
+		c.RetryConfig.MaxRetries = maxRetries
 	}
 }
 

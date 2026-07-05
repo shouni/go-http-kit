@@ -1,7 +1,6 @@
 package httpkit
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -70,7 +69,7 @@ func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, erro
 }
 
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大1024バイト読み込みます。
+// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大 MaxBodyDisplaySize バイト読み込みます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return ErrNilResponse
@@ -82,22 +81,10 @@ func checkResponseStatus(resp *http.Response) error {
 		return nil
 	}
 
-	var bodyBytes []byte
-	var err error
-	bodyBytes, err = io.ReadAll(io.LimitReader(resp.Body, 1024))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyDisplaySize))
 	if err != nil && len(bodyBytes) == 0 {
 		bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
 	}
 
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return &RetryableHTTPError{
-			StatusCode: resp.StatusCode,
-			Body:       bytes.TrimSpace(bodyBytes),
-		}
-	}
-
-	return &NonRetryableHTTPError{
-		StatusCode: resp.StatusCode,
-		Body:       bodyBytes,
-	}
+	return classifyStatusError(resp.StatusCode, bodyBytes)
 }

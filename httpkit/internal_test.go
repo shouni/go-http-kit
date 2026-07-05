@@ -30,9 +30,4 @@ func (m *MockDoer) Do(req *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("default"))}, nil
 }
 
-// errorReader は意図的に読み込みエラーを発生させる io.Reader です。
-type errorReader struct{ err error }
-
-func (e *errorReader) Read(p []byte) (n int, err error) { return 0, e.err }
-
 const MaxResponseBodySize = int64(25 * 1024 * 1024)

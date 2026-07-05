@@ -1,5 +1,6 @@
 # Go Http Kit
 
+[![CI](https://github.com/shouni/go-http-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/shouni/go-http-kit/actions/workflows/ci.yml)
 [![Language](https://img.shields.io/badge/Language-Go-blue)](https://golang.org/)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/shouni/go-http-kit)](https://golang.org/)
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/shouni/go-http-kit)](https://github.com/shouni/go-http-kit/tags)
@@ -266,7 +267,7 @@ type Downloader interface {
 | :--- | :--- | :--- |
 | `DefaultHTTPTimeout` | `10 * time.Second` | `New` に 0 以下の timeout を渡した場合の既定値 |
 | `MaxResponseBodySize` | `25MB` | `HandleResponse` が読み込む最大 response body size |
-| `MaxBodyDisplaySize` | `1024` | `NonRetryableHTTPError` が error message に表示する body の最大文字数 |
+| `MaxBodyDisplaySize` | `1024` | `RetryableHTTPError` / `NonRetryableHTTPError` の `Error()` が表示する body の最大文字数。stream 系のエラー判定 (`checkResponseStatus`) では body 読み込み自体の上限としても使用 |
 | `UserAgent` | Chrome compatible UA | helper request に設定される User-Agent |
 
 ## Project Layout
@@ -276,7 +277,7 @@ go-http-kit
 └── httpkit/
     ├── client.go          # Client construction and default HTTP client selection
     ├── const.go           # Package constants
-    ├── error.go           # NonRetryableHTTPError
+    ├── error.go           # RetryableHTTPError / NonRetryableHTTPError, status classification
     ├── interface.go       # Doer, Requester, Downloader, URLValidator, HTTPClient
     ├── options.go         # Client options
     ├── request.go         # Fetch / POST / JSON helpers

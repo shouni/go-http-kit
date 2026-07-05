@@ -74,7 +74,7 @@ func TestClient_WithNoRetry(t *testing.T) {
 	t.Run("DoesNotRetryOn5xx", func(t *testing.T) {
 		var mock *MockDoer
 		mock = &MockDoer{
-			CustomDo: func(req *http.Request) (*http.Response, error) {
+			CustomDo: func(_ *http.Request) (*http.Response, error) {
 				mock.CallCount++
 				return &http.Response{
 					StatusCode: http.StatusServiceUnavailable,

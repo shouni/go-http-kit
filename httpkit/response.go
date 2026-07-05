@@ -42,24 +42,10 @@ func HandleResponse(resp *http.Response) ([]byte, error) {
 		return nil, fmt.Errorf("%w: レスポンスボディのサイズが制限値 (%dバイト) を超過しました", ErrResponseBodyTooLarge, MaxResponseBodySize)
 	}
 
-	// 2xx系は成功
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return bodyBytes, nil
+	if err := classifyStatusError(resp.StatusCode, bodyBytes); err != nil {
+		return nil, err
 	}
-
-	// 5xx 系: リトライ対象のサーバーエラー
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return nil, &RetryableHTTPError{
-			StatusCode: resp.StatusCode,
-			Body:       bodyBytes,
-		}
-	}
-
-	// 4xx 系など、その他は非リトライ対象のクライアントエラー
-	return nil, &NonRetryableHTTPError{
-		StatusCode: resp.StatusCode,
-		Body:       bodyBytes,
-	}
+	return bodyBytes, nil
 }
 
 // IsHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
