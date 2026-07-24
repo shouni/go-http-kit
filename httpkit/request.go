@@ -24,13 +24,26 @@ func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
 	return body, err
 }
 
-// FetchBytes は GET リクエストを送信し、ボディを取得します。
-func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, error) {
+// FetchBytes は GET リクエストを送信し、ボディと Content-Type ヘッダーを取得します。
+func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, string, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return c.DoRequest(req)
+
+	var contentType string
+	var body []byte
+	err = c.executeWithClone(req, func(r *http.Request) error {
+		resp, doErr := c.Do(r)
+		if doErr != nil {
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
+		}
+		contentType = resp.Header.Get("Content-Type")
+		var handleErr error
+		body, handleErr = HandleResponse(resp)
+		return handleErr
+	})
+	return body, contentType, err
 }
 
 // PostRawBodyAndFetchBytes はバイト配列を POST します。
@@ -64,7 +77,7 @@ func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any
 
 // FetchAndDecodeJSON は GET して JSON をデコードします。
 func (c *Client) FetchAndDecodeJSON(ctx context.Context, url string, v any) error {
-	bodyBytes, err := c.FetchBytes(ctx, url)
+	bodyBytes, _, err := c.FetchBytes(ctx, url)
 	if err != nil {
 		return err
 	}

@@ -21,7 +21,11 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 			Errors: []error{timeoutNetError{}},
 			Responses: []*http.Response{
 				nil,
-				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
+				{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/xhtml+xml"}},
+					Body:       io.NopCloser(bytes.NewBufferString("recovered")),
+				},
 			},
 		}
 		client := httpkit.New(1*time.Second,
@@ -32,17 +36,41 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 			httpkit.WithMaxInterval(1*time.Millisecond),
 		)
 
-		res, err := client.FetchBytes(ctx, "https://example.com")
+		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
 		require.NoError(t, err)
-		assert.Equal(t, []byte("recovered"), res)
+		assert.Equal(t, []byte("recovered"), body)
+		assert.Equal(t, "application/xhtml+xml", contentType)
 		assert.Equal(t, 2, mock.CallCount)
+	})
+
+	t.Run("ContentTypeとボディを取得できる", func(t *testing.T) {
+		mock := &MockDoer{
+			Responses: []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+					Body:       io.NopCloser(bytes.NewBufferString("<html></html>")),
+				},
+			},
+		}
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithInitialInterval(1*time.Millisecond),
+		)
+
+		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("<html></html>"), body)
+		assert.Equal(t, "text/html; charset=utf-8", contentType)
+		assert.Equal(t, 1, mock.CallCount)
 	})
 
 	t.Run("SSRF_Block_Default", func(t *testing.T) {
 		mock := &MockDoer{}
 		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
 
-		_, err := client.FetchBytes(ctx, "http://169.254.169.254") // Metadata endpoint
+		_, _, err := client.FetchBytes(ctx, "http://169.254.169.254") // Metadata endpoint
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "SSRF安全検証エラー")
 		assert.Equal(t, 0, mock.CallCount) // 通信が発生していないこと
@@ -66,7 +94,7 @@ func TestClient_WithNoRetry(t *testing.T) {
 			httpkit.WithNoRetry(),
 		)
 
-		_, err := client.FetchBytes(ctx, "https://example.com")
+		_, _, err := client.FetchBytes(ctx, "https://example.com")
 		assert.Error(t, err, "リトライが無効な場合、最初の一時的エラーがそのまま返るはず")
 		assert.Equal(t, 1, mock.CallCount, "リトライされず1回だけ呼ばれるはず")
 	})

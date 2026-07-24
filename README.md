@@ -42,13 +42,13 @@ func main() {
        httpkit.WithMaxRetries(3),
     )
 
-    body, err := client.FetchBytes(ctx, "https://api.example.com/data")
+    body, contentType, err := client.FetchBytes(ctx, "https://api.example.com/data")
     if err != nil {
        fmt.Printf("request failed: %v\n", err)
        return
     }
 
-    fmt.Printf("response: %s\n", body)
+    fmt.Printf("response (%s): %s\n", contentType, body)
 }
 ```
 
@@ -100,7 +100,7 @@ client := httpkit.New(
 ### GET bytes
 
 ```go
-body, err := client.FetchBytes(ctx, "https://api.example.com/data")
+body, contentType, err := client.FetchBytes(ctx, "https://api.example.com/data")
 ```
 
 ### GET and decode JSON
@@ -197,7 +197,7 @@ HTTP status の扱い:
 4xx などの非 retry HTTP error は `NonRetryableHTTPError` として判定できます。
 
 ```go
-body, err := client.FetchBytes(ctx, "https://api.example.com/data")
+body, _, err := client.FetchBytes(ctx, "https://api.example.com/data")
 if err != nil {
     var nonRetryable *httpkit.NonRetryableHTTPError
     if errors.As(err, &nonRetryable) {
@@ -246,7 +246,7 @@ type Doer interface {
 
 type Requester interface {
     DoRequest(req *http.Request) ([]byte, error)
-    FetchBytes(ctx context.Context, url string) ([]byte, error)
+    FetchBytes(ctx context.Context, url string) (body []byte, contentType string, err error)
     FetchAndDecodeJSON(ctx context.Context, url string, v any) error
     PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error)
     PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error)
