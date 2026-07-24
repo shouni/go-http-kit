@@ -14,7 +14,7 @@ type Doer interface {
 // Requester は HTTP リクエストを作成し、応答を処理するためのインターフェイスを提供します。
 type Requester interface {
 	DoRequest(req *http.Request) ([]byte, error)
-	FetchBytes(ctx context.Context, url string) ([]byte, error)
+	FetchBytes(ctx context.Context, url string) (body []byte, contentType string, err error)
 	FetchAndDecodeJSON(ctx context.Context, url string, v any) error
 	PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error)
 	PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error)
