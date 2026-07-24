@@ -85,7 +85,9 @@ client := httpkit.New(
 
 `WithHTTPClient` を使う場合も、`FetchBytes` などの helper は `makeRequest` で URL 事前検証を行います。内部ネットワーク向けの custom client と組み合わせる場合は `WithSkipNetworkValidation(true)` も指定してください。
 
-ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` は「未設定」として扱われデフォルト値にフォールバックするため、リトライを無効化する目的では使えません。
+ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` も同じ効果です。
+
+なお netarmor 側の `retry.Config.MaxRetries` フィールドは `0` を「未設定」として扱いデフォルト値にフォールバックしますが、`WithMaxRetries(0)` は明示的な意思表示とみなして `DisableRetry` を設定するため、直感どおりリトライが無効になります。
 
 ```go
 client := httpkit.New(
@@ -184,7 +186,10 @@ body 付き request を独自に作って `DoRequest` に渡す場合、2 回目
 
 - `context.Canceled` と `context.DeadlineExceeded` は retry しない
 - `NonRetryableHTTPError` は retry しない
-- それ以外の error は retry 対象として扱う
+- 実装上の永続エラー / リクエスト不備は retry しない
+  (`ErrNilResponse`, `ErrNilResponseBody`, `ErrResponseBodyTooLarge`, `ErrRequestBodyNotReplayable`, `ErrRequestBodyRebuild`)
+- `RetryableHTTPError` (5xx) は retry する
+- それ以外の error は一時的な通信エラーの可能性を考慮し、retry 対象として扱う
 
 HTTP status の扱い:
 
@@ -197,18 +202,34 @@ HTTP status の扱い:
 4xx などの非 retry HTTP error は `NonRetryableHTTPError` として判定できます。
 
 ```go
-body, _, err := client.FetchBytes(ctx, "https://api.example.com/data")
-if err != nil {
-    var nonRetryable *httpkit.NonRetryableHTTPError
-    if errors.As(err, &nonRetryable) {
-       fmt.Printf("client error: status=%d body=%s\n", nonRetryable.StatusCode, nonRetryable.Body)
-       return
+import (
+    "errors"
+    "fmt"
+)
+
+func fetch(ctx context.Context, client *httpkit.Client) error {
+    body, _, err := client.FetchBytes(ctx, "https://api.example.com/data")
+    if err != nil {
+       var nonRetryable *httpkit.NonRetryableHTTPError
+       if errors.As(err, &nonRetryable) {
+          fmt.Printf("client error: status=%d body=%s\n", nonRetryable.StatusCode, nonRetryable.Body)
+          return nil
+       }
+
+       return err
     }
 
-    return err
+    _ = body
+    return nil
 }
+```
 
-_ = body
+型を取り出す必要がなければ、`IsNonRetryableError` / `IsRetryableHTTPError` でも判定できます。
+
+```go
+if httpkit.IsNonRetryableError(err) {
+    // 4xx など、retry しても解決しないエラー
+}
 ```
 
 response body が大きすぎる場合、`HandleResponse` は最大 `MaxResponseBodySize + 1` bytes まで読み込み、制限超過を検出します。`Content-Length` が制限を超えている場合は body を読み込まずに error を返します。
