@@ -1,10 +1,12 @@
 package httpkit_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/shouni/go-http-kit/httpkit"
+	"github.com/shouni/netarmor/securenet"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,7 +22,7 @@ func TestNew_And_Options(t *testing.T) {
 			httpkit.WithMaxRetries(5),
 			httpkit.WithSkipNetworkValidation(true),
 		)
-		assert.Equal(t, uint64(5), client.RetryConfig.MaxRetries)
+		assert.Equal(t, uint(5), client.RetryConfig.MaxRetries)
 		assert.True(t, client.SkipNetworkValidation)
 	})
 
@@ -38,37 +40,36 @@ func TestNew_And_Options(t *testing.T) {
 	})
 }
 
-func TestClient_IsSafeURL(t *testing.T) {
+func TestClient_ValidateURL(t *testing.T) {
 	client := httpkit.New(1 * time.Second)
+	ctx := context.Background()
 
 	// SSRF対策の網羅的なテストケース
 	testCases := []struct {
-		name   string
-		url    string
-		isSafe bool
-		hasErr bool
+		name    string
+		url     string
+		wantErr error // nil なら安全と判定されることを期待
 	}{
-		{"Valid Public URL", "https://google.com", true, false},
-		{"Valid GCS Scheme", "gs://my-bucket/obj", true, false},
-		{"Loopback IPv4", "http://127.0.0.1", false, true},
-		{"Loopback IPv6", "http://[::1]", false, true},
-		{"Private IPv4 Class A", "http://10.0.0.1", false, true},
-		{"Private IPv4 Class B", "http://172.16.0.1", false, true},
-		{"Private IPv4 Class C", "http://192.168.1.1", false, true},
-		{"Cloud Metadata IP", "http://169.254.169.254", false, true},
-		{"Invalid Scheme", "ftp://example.com", false, true},
-		{"Malformed URL", "http://%gh&%$.com", false, true},
+		{"Valid Public URL", "https://google.com", nil},
+		{"Valid GCS Scheme", "gs://my-bucket/obj", nil},
+		{"Loopback IPv4", "http://127.0.0.1", securenet.ErrRestrictedIP},
+		{"Loopback IPv6", "http://[::1]", securenet.ErrRestrictedIP},
+		{"Private IPv4 Class A", "http://10.0.0.1", securenet.ErrRestrictedIP},
+		{"Private IPv4 Class B", "http://172.16.0.1", securenet.ErrRestrictedIP},
+		{"Private IPv4 Class C", "http://192.168.1.1", securenet.ErrRestrictedIP},
+		{"Cloud Metadata IP", "http://169.254.169.254", securenet.ErrRestrictedIP},
+		{"Invalid Scheme", "ftp://example.com", securenet.ErrDisallowedScheme},
+		{"Malformed URL", "http://%gh&%$.com", securenet.ErrInvalidURL},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			safe, err := client.IsSafeURL(tc.url)
-			assert.Equal(t, tc.isSafe, safe, "URL: %s", tc.url)
-			if tc.hasErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
+			err := client.ValidateURL(ctx, tc.url)
+			if tc.wantErr == nil {
+				assert.NoError(t, err, "URL: %s", tc.url)
+				return
 			}
+			assert.ErrorIs(t, err, tc.wantErr, "URL: %s", tc.url)
 		})
 	}
 }

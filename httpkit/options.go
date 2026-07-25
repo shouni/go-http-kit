@@ -17,11 +17,7 @@ func WithHTTPClient(client Doer) ClientOption {
 
 // WithMaxRetries は最大リトライ回数を設定します。0 を指定するとリトライを
 // 完全に無効化します（WithNoRetry と同じ効果です）。
-//
-// 注意: retry.Config.MaxRetries フィールド自体は 0 を「未設定」として扱い
-// デフォルト値にフォールバックしますが、このオプション経由で 0 を渡した場合は
-// 明示的な意思表示とみなし DisableRetry を設定することで、直感的な挙動にしています。
-func WithMaxRetries(maxRetries uint64) ClientOption {
+func WithMaxRetries(maxRetries uint) ClientOption {
 	return func(c *Client) {
 		if maxRetries == 0 {
 			c.DisableRetry = true
