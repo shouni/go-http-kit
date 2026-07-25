@@ -12,15 +12,10 @@ import (
 // makeRequest は、リクエストの構築、SSRF検証、共通ヘッダーの付与を行います。
 func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
 	// 1. SSRF 検証 (SkipNetworkValidation が false の場合のみ)
+	// 名前解決はリクエストの ctx に従うため、呼び出し側のタイムアウトが効く。
 	if !c.SkipNetworkValidation {
-		if ok, err := c.IsSafeURL(urlStr); !ok {
-			var validationErr error
-			if err != nil {
-				validationErr = err
-			} else {
-				validationErr = fmt.Errorf("URL '%s' へのアクセスはセキュリティポリシーによりブロックされました", urlStr)
-			}
-			return nil, fmt.Errorf("SSRF安全検証エラー: %w", validationErr)
+		if err := c.ValidateURL(ctx, urlStr); err != nil {
+			return nil, fmt.Errorf("SSRF安全検証エラー: %w", err)
 		}
 	}
 
@@ -51,7 +46,12 @@ func (c *Client) doWithRetry(ctx context.Context, operationName string, op func(
 	if c.DisableRetry {
 		return op()
 	}
-	return retry.Do(ctx, c.RetryConfig, operationName, op, c.IsHTTPRetryableError)
+
+	opts := append(c.RetryConfig.retryOptions(),
+		retry.WithName(operationName),
+		retry.WithShouldRetry(c.IsHTTPRetryableError),
+	)
+	return retry.Run(ctx, op, opts...)
 }
 
 // executeWithClone はリクエストをクローンしてリトライを実行する共通ロジックです。

@@ -87,7 +87,7 @@ client := httpkit.New(
 
 ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` も同じ効果です。
 
-なお netarmor 側の `retry.Config.MaxRetries` フィールドは `0` を「未設定」として扱いデフォルト値にフォールバックしますが、`WithMaxRetries(0)` は明示的な意思表示とみなして `DisableRetry` を設定するため、直感どおりリトライが無効になります。
+リトライ設定は `httpkit.RetryConfig` として保持され、内部で netarmor の `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は netarmor 側の既定値が使われます。
 
 ```go
 client := httpkit.New(
@@ -239,14 +239,16 @@ response body が大きすぎる場合、`HandleResponse` は最大 `MaxResponse
 URL の安全性チェックだけを使うこともできます。
 
 ```go
-safe, err := client.IsSafeURL("https://example.com")
-if err != nil {
+if err := client.ValidateURL(ctx, "https://example.com"); err != nil {
+    // 失敗理由は errors.Is で分類できます
+    if errors.Is(err, securenet.ErrRestrictedIP) {
+        return fmt.Errorf("blocked URL: %w", err)
+    }
     return err
 }
-if !safe {
-    return fmt.Errorf("blocked URL")
-}
 ```
+
+名前解決のタイムアウトは `ctx` で制御します。
 
 サービス URL の scheme 確認には `IsSecureServiceURL` を使います。
 

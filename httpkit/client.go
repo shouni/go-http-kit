@@ -3,6 +3,7 @@
 package httpkit
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -14,11 +15,45 @@ import (
 // クライアント定義と設定
 // ----------------------------------------------------------------------
 
+// RetryConfig はリトライ動作の設定です。
+//
+// MaxRetries は初回実行を除いたリトライ回数です。0 はリトライを行わないことを
+// 意味しますが、通常は WithNoRetry / WithMaxRetries(0) 経由で DisableRetry が
+// 設定されるため、この値が 0 のまま使われることはありません。
+// 各インターバルが 0 の場合は netarmor 側の既定値が使用されます。
+type RetryConfig struct {
+	MaxRetries      uint
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
+}
+
+// DefaultRetryConfig は既定のリトライ設定を返します。
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:      retry.DefaultMaxRetries,
+		InitialInterval: retry.InitialBackoffInterval,
+		MaxInterval:     retry.MaxBackoffInterval,
+	}
+}
+
+// retryOptions は RetryConfig を netarmor の retry.Option 列に変換します。
+// 0 値のインターバルは指定せず、netarmor 側の既定値に委ねます。
+func (rc RetryConfig) retryOptions() []retry.Option {
+	opts := []retry.Option{retry.WithMaxRetries(rc.MaxRetries)}
+	if rc.InitialInterval > 0 {
+		opts = append(opts, retry.WithInitialInterval(rc.InitialInterval))
+	}
+	if rc.MaxInterval > 0 {
+		opts = append(opts, retry.WithMaxInterval(rc.MaxInterval))
+	}
+	return opts
+}
+
 // Client はHTTPリクエスト、指数バックオフを用いたリトライ、
 // および SSRF 対策などのネットワーク検証を管理します。
 type Client struct {
 	httpClient            Doer
-	RetryConfig           retry.Config
+	RetryConfig           RetryConfig
 	SkipNetworkValidation bool
 	DisableRetry          bool
 }
@@ -32,7 +67,7 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 
 	// 1. デフォルト設定の適用
 	client := &Client{
-		RetryConfig:           retry.DefaultConfig(),
+		RetryConfig:           DefaultRetryConfig(),
 		SkipNetworkValidation: false,
 	}
 
@@ -71,9 +106,13 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// IsSafeURL は URL が SSRF の観点で安全か判定します。
-func (c *Client) IsSafeURL(urlStr string) (bool, error) {
-	return securenet.IsSafeURL(urlStr)
+// ValidateURL は URL が SSRF の観点で安全か検証します。安全な場合は nil を返します。
+//
+// 失敗理由は errors.Is で分類できます（securenet.ErrRestrictedIP,
+// securenet.ErrDisallowedScheme, securenet.ErrInvalidURL 等）。
+// 名前解決のタイムアウトは ctx で制御してください。
+func (c *Client) ValidateURL(ctx context.Context, urlStr string) error {
+	return securenet.ValidateURL(ctx, urlStr)
 }
 
 // IsSecureServiceURL は サービスURLが安全なスキームか確認します。

@@ -28,7 +28,7 @@ type Downloader interface {
 
 // URLValidator は URL の安全性とセキュリティを検証するためのインターフェイスを定義します。
 type URLValidator interface {
-	IsSafeURL(urlStr string) (bool, error)
+	ValidateURL(ctx context.Context, urlStr string) error
 	IsSecureServiceURL(serviceURL string) bool
 }
 
