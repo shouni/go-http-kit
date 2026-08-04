@@ -14,12 +14,13 @@
 ## Features
 
 - デフォルトで `netarmor/securenet` による SSRF / DNS Rebinding 対策付き client を使用
-- `http`, `https`, `gs` などの URL 安全性チェック
+- `http`, `https`, `gs`, `s3` の URL 安全性チェック（`gs` / `s3` はクラウド SDK が接続先を決めるため名前解決せず許可）
 - 5xx や一時的な通信エラーを想定した指数バックオフ retry
 - 4xx は `NonRetryableHTTPError` として扱い、retry しない
 - `MaxResponseBodySize` による response body の読み込み制限
 - GET / POST JSON / POST raw body / stream download の helper
 - `WithHTTPClient` による `Doer` 注入
+- `WithoutRetry` による、設定とコネクションプールを共有した retry なしクライアントの派生
 
 ## Quick Start
 
@@ -87,6 +88,8 @@ client := httpkit.New(
 
 ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` も同じ効果です。
 
+取得と送信で使い分けたい場合は、クライアントを 2 つ作らずに `WithoutRetry` で派生させてください（[Retry Behavior](#retry-behavior) 参照）。
+
 リトライ設定は `httpkit.RetryConfig` として保持され、内部で netarmor の `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は netarmor 側の既定値が使われます。
 
 ```go
@@ -140,6 +143,24 @@ body, err := client.PostRawBodyAndFetchBytes(
 
 `PostRawBodyAndFetchBytes` と `PostJSONAndFetchBytes` は、retry 時に body を再構築できるよう `req.GetBody` を設定します。
 
+### 自前の request を渡す場合 (`DoRequest` / `DoStreamRequest`)
+
+上記の helper は内部の `makeRequest` で **URL の事前検証と共通ヘッダーの付与**を行いますが、`DoRequest` / `DoStreamRequest` は組み立て済みの `*http.Request` を受け取るため、**どちらも行われません**。
+
+- **URL 検証なし** — `Doer` 側の DNS Rebinding 対策（接続直前の IP 検証）は効きますが、スキーマや宛先の事前チェックが要るなら `ValidateURL` を自分で呼んでください
+- **共通ヘッダーなし** — `User-Agent` / `sec-ch-ua` / `Accept-Language` は付きません
+- **body 付きなら `req.GetBody` が必須** — 無い場合、2 回目の retry で `ErrRequestBodyNotReplayable` になります
+
+```go
+req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+if err != nil {
+    return err
+}
+req.GetBody = func() (io.ReadCloser, error) {
+    return io.NopCloser(bytes.NewReader(body)), nil
+}
+```
+
 ## Stream Download
 
 `FetchStream` は response body を callback に渡し、callback 終了後に close します。
@@ -176,6 +197,24 @@ if err != nil {
 defer rc.Close()
 ```
 
+GET 以外のメソッドやカスタムヘッダーが必要な場合は、request を自分で組んで `DoStreamRequest` に渡します。`FetchStream` / `GetStream` はどちらも内部でこれを呼んでいます。
+
+```go
+req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+if err != nil {
+    return err
+}
+req.Header.Set("Content-Type", "application/json")
+
+rc, err := client.DoStreamRequest(req)
+if err != nil {
+    return err
+}
+defer rc.Close()
+```
+
+自前 request を渡す経路の注意点は [自前の request を渡す場合](#自前の-request-を渡す場合-dorequest--dostreamrequest) を参照してください。
+
 ## Retry Behavior
 
 `DoRequest` / helper methods は内部で request を clone して retry します。
@@ -196,6 +235,34 @@ HTTP status の扱い:
 - `2xx`: 成功
 - `5xx`: retry 対象の error
 - その他: `NonRetryableHTTPError`
+
+### retry 判定は HTTP method を見ません（意図的）
+
+判定関数 `IsHTTPRetryableError(err error) bool` は error だけを受け取るため、GET も POST も同じ扱いになります。
+
+これは **非冪等な送信では二重実行になり得る** ことを意味します。5xx や read timeout は「サーバに届いていない」ことを保証しません。届いた上でレスポンスを取りこぼした場合、retry すると同じ副作用がもう一度起きます。Webhook 投稿やジョブ投入がこれに当たります。
+
+**それでも method で自動判定はしません。冪等性は「操作」の性質であって「メソッド」の性質ではないためです。** 実際、両方向に反例があります。
+
+- **副作用のない POST**: 音声合成は POST ですが、同じ入力から同じ出力を作るだけです。retry したい側です
+- **retry したくない DELETE**: DELETE は RFC 上冪等ですが、書き込み操作として retry を切りたい場面があります
+
+主要な実装も明示宣言を採っています。Go 標準の `net/http` は GET/HEAD/OPTIONS/TRACE **または `Idempotency-Key` ヘッダを持つ**リクエストを再送可能とみなし、gRPC は service config でメソッド単位に opt-in、AWS SDK は operation metadata で宣言します。
+
+したがって **呼び出し側が宣言してください**。
+
+### `WithoutRetry` で送信用クライアントを派生させる
+
+取得は retry あり、送信は retry なし、という使い分けは 1 つのクライアントから派生させられます。
+
+```go
+client := httpkit.New(10*time.Second)   // 取得用: retry あり
+poster := client.WithoutRetry()         // 送信用: retry なし
+```
+
+`New` をもう一度呼ぶ場合と違い、timeout や SSRF 対策の設定を書き写す必要がなく、内部の `Doer` を共有するので **`securenet` クライアントと TCP コネクションプールも二重に持ちません**。元のクライアントは変更されません。
+
+クライアント全体で retry が不要なら、従来どおり `WithNoRetry` / `WithMaxRetries(0)` を使ってください。
 
 ## Error Handling
 
@@ -279,7 +346,23 @@ type Downloader interface {
     FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error
     GetStream(ctx context.Context, url string) (io.ReadCloser, error)
 }
+
+type URLValidator interface {
+    ValidateURL(ctx context.Context, urlStr string) error
+    IsSecureServiceURL(serviceURL string) bool
+}
+
+// HTTPClient は上記すべてをまとめたものです。
+type HTTPClient interface {
+    Doer
+    Requester
+    Downloader
+    URLValidator
+}
 ```
+
+`*Client` はこれらすべてを実装します。利用側は必要な範囲だけを受け取ってください
+（送信だけなら `Requester`、ダウンロードだけなら `Downloader`）。
 
 `Doer` 実装は、`err == nil` の場合に non-nil の `*http.Response` と `Body` を返す必要があります。
 
@@ -291,13 +374,15 @@ type Downloader interface {
 | `MaxResponseBodySize` | `25MB` | `HandleResponse` が読み込む最大 response body size |
 | `MaxBodyDisplaySize` | `1024` | `RetryableHTTPError` / `NonRetryableHTTPError` の `Error()` が表示する body の最大文字数。stream 系のエラー判定 (`checkResponseStatus`) では body 読み込み自体の上限としても使用 |
 | `UserAgent` | Chrome compatible UA | helper request に設定される User-Agent |
+| `SecChUA` | Chrome 136 の Client Hints | `sec-ch-ua` ヘッダー値 |
+| `AcceptLanguage` | `ja,en-US;q=0.9,en;q=0.8` | `Accept-Language` ヘッダー値 |
 
 ## Project Layout
 
 ```text
 go-http-kit
 └── httpkit/
-    ├── client.go          # Client construction and default HTTP client selection
+    ├── client.go          # Client construction, derivation (WithoutRetry), default HTTP client selection
     ├── const.go           # Package constants
     ├── error.go           # RetryableHTTPError / NonRetryableHTTPError, status classification
     ├── interface.go       # Doer, Requester, Downloader, URLValidator, HTTPClient
