@@ -38,6 +38,19 @@ Everything lives in the `httpkit` package (no internal packages, no subdirectori
 
 Retries happen by cloning the original `*http.Request` on each attempt (`executeWithClone`); a body-bearing request must set `req.GetBody` or retry fails with `ErrRequestBodyNotReplayable` on the second attempt. `PostRawBodyAndFetchBytes`/`PostJSONAndFetchBytes` set `GetBody` automatically; hand-built requests passed to `DoRequest` must set it themselves.
 
+**The retry predicate never sees the HTTP method, and that is deliberate — do not "fix" it.** `IsHTTPRetryableError(err error) bool` is handed only the error, so a POST is retried on 5xx and transient network errors exactly like a GET. Neither a 5xx nor a read timeout proves the server didn't process the request, so retrying a non-idempotent call can duplicate its side effect — a second Slack message, a second enqueued job. Making the predicate method-aware looks like the obvious correction and is wrong here, because **the HTTP method is not a usable proxy for idempotency in this family of repos** — it misclassifies in both directions:
+
+- `go-voicevox`'s synthesis call (`api/client.go`) is a **POST with no side effect** — the same text yields the same audio. It runs against a local engine that does get flaky under load, so it is exactly where a retry earns its keep. "Don't retry POST" would remove it.
+- `ap-mcp`'s delete (`internal/client/base.go`) is a **DELETE, idempotent by RFC 7231**, and is nonetheless routed through a no-retry client on purpose ("二重削除を避ける実益は薄いものの、他の書き込み操作と同様に"). "Retry idempotent methods" would reinstate a retry the author deliberately removed.
+
+Idempotency is a property of the *operation*, not of the method, which is why the mainstream implementations use explicit declaration rather than method sniffing: Go's own `net/http` treats a request as replayable if it is GET/HEAD/OPTIONS/TRACE **or carries an `Idempotency-Key` header**; gRPC declares retry policy per method in service config; the AWS SDK carries idempotency in operation metadata. The escape hatch is always a caller declaration.
+
+`Client.WithoutRetry()` is that declaration here, and its granularity matches how these repos are already organised: the retry decision tracks a *role* (a reading client vs a writing client), not an individual call — `ap-mcp` had already split `readClient`/`writeClient` by hand. A per-request option (`PostJSON(..., httpkit.NoRetry())`) is therefore not needed yet; add it only when a single client genuinely needs both behaviours.
+
+`WithoutRetry()` returns a shallow copy with `DisableRetry` set, sharing the same `Doer` — so the derived client keeps the original's timeout, SSRF settings, and connection pool. It exists because callers were hand-rolling it: `ap-mcp` built two `httpkit.New` calls differing only in `WithNoRetry`, and `ap-mcp-slack` constructs a whole separate client for its webhook path. Both duplicate configuration that can drift, and the second `New` also builds a second `securenet` client and connection pool. Prefer `WithoutRetry()` over a second `New` when the only difference is the retry policy; use `WithNoRetry` when the whole client should never retry.
+
+One thing that *is* open: the predicate's final `return true` retries any error it could not classify. Narrowing it to a known set of transient network errors is defensible, but `net.Error` classification varies by platform and narrowing too far drops retries that currently work. Leave it until a real miss is observed.
+
 ### Test layout
 
 Tests mix black-box (`package httpkit_test`, e.g. `client_test.go`, `request_test.go`) and white-box (`package httpkit`, suffixed `_internal_test.go`, e.g. `client_internal_test.go`) styles — use the white-box files when a test needs access to unexported helpers (`makeRequest`, `classifyStatusError`, etc.).

@@ -106,6 +106,34 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
+// WithoutRetry はリトライを無効にした派生クライアントを返します。
+// 元のクライアントは変更しません。
+//
+// 内部の Doer をそのまま共有するため、コネクションプールと SSRF 対策の設定は
+// 元のクライアントと同一のものが使われます。New をもう一度呼ぶ場合と違い、
+// タイムアウトや検証設定を書き写す必要がなく、TCP コネクションプールも
+// 二重に持ちません。
+//
+// 冪等な取得と非冪等な送信が同じ設定を共有する場面で使います。
+// 典型的には Webhook や外部へのジョブ投入で、これらは成功するたびに
+// 副作用が生まれるため、レスポンスを取りこぼした際のリトライが
+// 二重実行になります。
+//
+//	client := httpkit.New(timeout)              // 取得はリトライあり
+//	poster := client.WithoutRetry()             // 送信はリトライなし
+//
+// レシーバが nil の場合は nil を返します。
+func (c *Client) WithoutRetry() *Client {
+	if c == nil {
+		return nil
+	}
+
+	derived := *c
+	derived.DisableRetry = true
+
+	return &derived
+}
+
 // ValidateURL は URL が SSRF の観点で安全か検証します。安全な場合は nil を返します。
 //
 // 失敗理由は errors.Is で分類できます（securenet.ErrRestrictedIP,
