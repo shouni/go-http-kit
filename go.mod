@@ -3,7 +3,7 @@ module github.com/shouni/go-http-kit
 go 1.26
 
 require (
-	github.com/shouni/netarmor v1.2.0
+	github.com/shouni/netarmor v1.2.1
 	github.com/stretchr/testify v1.11.1
 )
 
