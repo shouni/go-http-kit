@@ -120,6 +120,40 @@ func TestClient_RetryOn429(t *testing.T) {
 	assert.Equal(t, 2, mock.CallCount, "429 はリトライ対象として再試行されるはず")
 }
 
+// TestClient_RetryOn429HonorsRetryAfter は、429 の Retry-After ヘッダーが
+// 次のリトライまでの待機時間として尊重されることを検証します。
+// 指数バックオフの設定 (1ms) より Retry-After (1秒) が優先されます。
+func TestClient_RetryOn429HonorsRetryAfter(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &MockDoer{
+		Responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Retry-After": []string{"1"}},
+				Body:       io.NopCloser(bytes.NewBufferString("slow down")),
+			},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
+		},
+	}
+	client := httpkit.New(5*time.Second,
+		httpkit.WithHTTPClient(mock),
+		httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithMaxRetries(1),
+		httpkit.WithInitialInterval(1*time.Millisecond),
+		httpkit.WithMaxInterval(1*time.Millisecond),
+	)
+
+	start := time.Now()
+	body, _, err := client.FetchBytes(ctx, "https://example.com")
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Equal(t, []byte("recovered"), body)
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond,
+		"Retry-After: 1 が待機時間として使われるはず (実測 %v)", elapsed)
+}
+
 func TestClient_HeaderCustomization(t *testing.T) {
 	ctx := context.Background()
 

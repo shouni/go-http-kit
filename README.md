@@ -243,6 +243,11 @@ HTTP status の扱い:
 - `5xx` / `408 Request Timeout` / `429 Too Many Requests`: retry 対象の error
 - その他: `NonRetryableHTTPError`
 
+429/503 などでサーバが `Retry-After` ヘッダーを返した場合は、指数バックオフの算出値の
+代わりにその待機時間を使います（秒数・HTTP-date の両形式に対応）。値は
+`RetryableHTTPError.RetryAfterDelay` として保持され、netarmor `retry.DelayHinter` 経由で
+リトライ間隔に反映されます。
+
 ### retry 判定は HTTP method を見ません（意図的）
 
 判定関数 `IsHTTPRetryableError(err error) bool` は error だけを受け取るため、GET も POST も同じ扱いになります。

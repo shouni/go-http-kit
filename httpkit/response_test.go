@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/shouni/go-http-kit/httpkit"
 	"github.com/stretchr/testify/assert"
@@ -52,6 +53,20 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(bytes.NewBufferString("rate limited"))}
 		_, err := httpkit.HandleResponse(resp)
 		assert.True(t, httpkit.IsRetryableHTTPError(err), "429 はリトライ対象のはず")
+	})
+
+	t.Run("Retryable_429_CarriesRetryAfter", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": []string{"30"}},
+			Body:       io.NopCloser(bytes.NewBufferString("rate limited")),
+		}
+		_, err := httpkit.HandleResponse(resp)
+
+		var retryable *httpkit.RetryableHTTPError
+		require.ErrorAs(t, err, &retryable)
+		assert.Equal(t, 30*time.Second, retryable.RetryAfterDelay)
+		assert.Equal(t, 30*time.Second, retryable.RetryAfter(), "DelayHinter の実装が Retry-After を返すはず")
 	})
 
 	t.Run("Retryable_408", func(t *testing.T) {

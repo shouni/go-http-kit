@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/shouni/netarmor/retry"
 )
 
 // ----------------------------------------------------------------------
@@ -36,12 +40,23 @@ var (
 type RetryableHTTPError struct {
 	StatusCode int
 	Body       []byte
+	// RetryAfterDelay は、サーバが Retry-After ヘッダーで指定してきた待機時間です。
+	// ヘッダーが無い・解釈できない場合は 0 です。
+	RetryAfterDelay time.Duration
 }
+
+// RetryableHTTPError が netarmor/retry の DelayHinter を満たすことを保証します。
+// これにより、リトライ時の待機時間としてサーバ指定の Retry-After が尊重されます。
+var _ retry.DelayHinter = (*RetryableHTTPError)(nil)
 
 // Error は RetryableHTTPError のエラーメッセージを返します。
 func (e *RetryableHTTPError) Error() string {
 	return formatHTTPError("HTTPエラー (リトライ対象)", e.StatusCode, e.Body)
 }
+
+// RetryAfter は retry.DelayHinter を実装し、次のリトライまで最低限待つべき時間を返します。
+// 正の値を返すと、指数バックオフの算出値の代わりにこの値が待機時間として使われます。
+func (e *RetryableHTTPError) RetryAfter() time.Duration { return e.RetryAfterDelay }
 
 // NonRetryableHTTPError は、リトライしても解決しないHTTPステータスコードエラー
 // (408/429 を除く 4xx 系など) を示すカスタムエラー型です。
@@ -60,16 +75,41 @@ func (e *NonRetryableHTTPError) Error() string {
 // リトライ対象/非対象のHTTPエラーを分類します。2xxの場合は nil を返します。
 // ステータスコードの分類ルールを一箇所に集約し、呼び出し側での定義のズレを防ぎます。
 // Body は生のまま MaxErrorBodySize までで保持し、表示用の整形は Error() に任せます。
-func classifyStatusError(statusCode int, body []byte) error {
+// retryAfter はサーバが Retry-After で指定してきた待機時間で、無ければ 0 を渡します。
+func classifyStatusError(statusCode int, body []byte, retryAfter time.Duration) error {
 	if statusCode >= 200 && statusCode < 300 {
 		return nil
 	}
 
 	body = truncateErrorBody(body)
 	if isRetryableStatus(statusCode) {
-		return &RetryableHTTPError{StatusCode: statusCode, Body: body}
+		return &RetryableHTTPError{StatusCode: statusCode, Body: body, RetryAfterDelay: retryAfter}
 	}
 	return &NonRetryableHTTPError{StatusCode: statusCode, Body: body}
+}
+
+// parseRetryAfter は Retry-After ヘッダー値を待機時間として解釈します。
+// 秒数（非負整数）と HTTP-date の両形式に対応し、解釈できない値・過去の時刻・
+// 空文字は 0（指定なし）として扱います。
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+
+	if t, err := http.ParseTime(value); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // isRetryableStatus は、待って再送すれば成功しうるステータスコードかを判定します。

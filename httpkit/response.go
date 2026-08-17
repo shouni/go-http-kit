@@ -47,7 +47,7 @@ func handleResponseWithLimit(resp *http.Response, maxBodySize int64) ([]byte, er
 		return nil, fmt.Errorf("%w: レスポンスボディのサイズが制限値 (%dバイト) を超過しました", ErrResponseBodyTooLarge, maxBodySize)
 	}
 
-	if err := classifyStatusError(resp.StatusCode, bodyBytes); err != nil {
+	if err := classifyStatusError(resp.StatusCode, bodyBytes, parseRetryAfter(resp.Header.Get("Retry-After"))); err != nil {
 		return nil, err
 	}
 	return bodyBytes, nil

@@ -91,5 +91,5 @@ func checkResponseStatus(resp *http.Response) error {
 		bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
 	}
 
-	return classifyStatusError(resp.StatusCode, bodyBytes)
+	return classifyStatusError(resp.StatusCode, bodyBytes, parseRetryAfter(resp.Header.Get("Retry-After")))
 }
