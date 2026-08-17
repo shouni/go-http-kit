@@ -9,19 +9,31 @@ import (
 	"net/http"
 )
 
-// DoRequest は、リトライ処理とレスポンスハンドリングを統合した実行コアです。
+// DoRequest は、組み立て済みのリクエストをリトライ付きで実行し、ボディを返します。
+// 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
 func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
+	body, _, err := c.doBuffered(req)
+	return body, err
+}
+
+// doBuffered は、リトライ付きでリクエストを実行し、ボディ全体と最後に受信した
+// レスポンスヘッダーを返します。DoRequest / FetchBytes 共通の実行部です。
+func (c *Client) doBuffered(req *http.Request) ([]byte, http.Header, error) {
 	var body []byte
+	var header http.Header
 	err := c.executeWithClone(req, func(r *http.Request) error {
-		resp, err := c.Do(r)
-		if err != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
+		resp, doErr := c.Do(r)
+		if doErr != nil {
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
+		}
+		if resp != nil {
+			header = resp.Header
 		}
 		var handleErr error
-		body, handleErr = HandleResponse(resp)
+		body, handleErr = handleResponseWithLimit(resp, c.maxBodySize())
 		return handleErr
 	})
-	return body, err
+	return body, header, err
 }
 
 // FetchBytes は GET リクエストを送信し、ボディと Content-Type ヘッダーを取得します。
@@ -31,19 +43,8 @@ func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, string, er
 		return nil, "", err
 	}
 
-	var contentType string
-	var body []byte
-	err = c.executeWithClone(req, func(r *http.Request) error {
-		resp, doErr := c.Do(r)
-		if doErr != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
-		}
-		contentType = resp.Header.Get("Content-Type")
-		var handleErr error
-		body, handleErr = HandleResponse(resp)
-		return handleErr
-	})
-	return body, contentType, err
+	body, header, err := c.doBuffered(req)
+	return body, header.Get("Content-Type"), err
 }
 
 // PostRawBodyAndFetchBytes はバイト配列を POST します。

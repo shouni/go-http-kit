@@ -52,10 +52,21 @@ func (rc RetryConfig) retryOptions() []retry.Option {
 // Client はHTTPリクエスト、指数バックオフを用いたリトライ、
 // および SSRF 対策などのネットワーク検証を管理します。
 type Client struct {
-	httpClient            Doer
+	httpClient   Doer // バッファリング系リクエストに使う Doer
+	streamClient Doer // ストリーム系リクエストに使う Doer（クライアント全体のタイムアウトなし）
+
 	RetryConfig           RetryConfig
 	SkipNetworkValidation bool
 	DisableRetry          bool
+
+	// MaxBodySize は、バッファリング系メソッドが読み込むレスポンスボディの上限です。
+	// 0 以下の場合は MaxResponseBodySize が使われます。WithMaxResponseBodySize で設定します。
+	MaxBodySize int64
+	// UserAgent は、共通ヘッダーとして送信する User-Agent です。
+	// New では既定で UserAgent 定数が設定されます。空の場合はヘッダーを設定しません。
+	UserAgent string
+	// DisableBrowserHeaders が true の場合、sec-ch-ua 系のブラウザ由来ヘッダーを送信しません。
+	DisableBrowserHeaders bool
 }
 
 // New は新しいClientを初期化します。
@@ -65,35 +76,63 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		timeout = DefaultHTTPTimeout
 	}
 
-	// 1. デフォルト設定の適用
 	client := &Client{
 		RetryConfig:           DefaultRetryConfig(),
 		SkipNetworkValidation: false,
+		UserAgent:             UserAgent,
 	}
 
-	// 2. オプションによる設定の上書き
 	for _, opt := range options {
 		opt(client)
 	}
 
-	// 3. 最終的な HTTP クライアントの確定
 	client.ensureHTTPClient(timeout)
 
 	return client
 }
 
 // ensureHTTPClient は、httpClient が未設定の場合に、設定に基づいてデフォルトのクライアントを構築します。
+// あわせてストリーム用の streamClient も確定します（分離の理由は newStreamClient を参照）。
 func (c *Client) ensureHTTPClient(timeout time.Duration) {
-	if c.httpClient != nil {
-		return // WithHTTPClient 等で既に注入済みの場合は何もしない
+	if c.httpClient == nil {
+		var base *http.Client
+		if c.SkipNetworkValidation {
+			// 内部通信などを許可する標準のクライアント。
+			// ResponseHeaderTimeout の設定が DefaultTransport へ波及しないよう clone する。
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			base = &http.Client{Transport: transport, Timeout: timeout}
+		} else {
+			// securenet による動的バリデーション（SSRF/DNS Rebinding対策）付きクライアント
+			base = securenet.NewSafeHTTPClient(timeout)
+		}
+		c.httpClient = base
+		c.streamClient = newStreamClient(base, timeout)
 	}
 
-	if c.SkipNetworkValidation {
-		// 内部通信などを許可する標準のクライアント
-		c.httpClient = &http.Client{Timeout: timeout}
-	} else {
-		// securenet による動的バリデーション（SSRF/DNS Rebinding対策）付きクライアント
-		c.httpClient = securenet.NewSafeHTTPClient(timeout)
+	if c.streamClient == nil {
+		// WithHTTPClient で注入された Doer はストリームにもそのまま使う。
+		// 注入したクライアントの Timeout がボディ読み取りまで及ぶ点は呼び出し側の管理となる。
+		c.streamClient = c.httpClient
+	}
+}
+
+// newStreamClient は、base と Transport（コネクションプール）を共有しつつ、
+// クライアント全体のタイムアウトを外したストリーミング用クライアントを返します。
+//
+// http.Client.Timeout はレスポンスボディの読み取り完了までを含むため、ストリームに
+// 適用すると時間のかかるダウンロードが途中で切断されます。代わりにヘッダー受信までを
+// Transport.ResponseHeaderTimeout で制限し、ボディ読み取りの寿命はリクエストの
+// ctx に委ねます。
+func newStreamClient(base *http.Client, timeout time.Duration) *http.Client {
+	if transport, ok := base.Transport.(*http.Transport); ok && transport.ResponseHeaderTimeout == 0 {
+		// Transport は共有だが、バッファリング側には全体タイムアウトが別途効いており、
+		// ヘッダー受信の期限はそれより長くならないため挙動を狭めない。
+		transport.ResponseHeaderTimeout = timeout
+	}
+	return &http.Client{
+		Transport:     base.Transport,
+		CheckRedirect: base.CheckRedirect,
+		Jar:           base.Jar,
 	}
 }
 
@@ -101,18 +140,26 @@ func (c *Client) ensureHTTPClient(timeout time.Duration) {
 // ユーティリティ・公開メソッド
 // ----------------------------------------------------------------------
 
-// Do は Doer インターフェースを実装します。リトライロジックは適用されません。
+// Do は Doer インターフェースを実装します。リトライロジックと SSRF 事前検証は
+// 適用されません（デフォルト構成では securenet が接続直前の IP 検証を行います）。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
+}
+
+// maxBodySize は、バッファリング系メソッドで使うレスポンスボディの上限を返します。
+func (c *Client) maxBodySize() int64 {
+	if c.MaxBodySize > 0 {
+		return c.MaxBodySize
+	}
+	return MaxResponseBodySize
 }
 
 // WithoutRetry はリトライを無効にした派生クライアントを返します。
 // 元のクライアントは変更しません。
 //
-// 内部の Doer をそのまま共有するため、コネクションプールと SSRF 対策の設定は
-// 元のクライアントと同一のものが使われます。New をもう一度呼ぶ場合と違い、
-// タイムアウトや検証設定を書き写す必要がなく、TCP コネクションプールも
-// 二重に持ちません。
+// 内部の Doer（通常用・ストリーム用とも）をそのまま共有するため、New をもう一度
+// 呼ぶ場合と違い、タイムアウトや SSRF 対策の設定を書き写す必要がなく、
+// TCP コネクションプールも二重に持ちません。
 //
 // 冪等な取得と非冪等な送信が同じ設定を共有する場面で使います。
 // 典型的には Webhook や外部へのジョブ投入で、これらは成功するたびに
@@ -143,7 +190,7 @@ func (c *Client) ValidateURL(ctx context.Context, urlStr string) error {
 	return securenet.ValidateURL(ctx, urlStr)
 }
 
-// IsSecureServiceURL は サービスURLが安全なスキームか確認します。
+// IsSecureServiceURL は、サービスURLが安全なスキームか確認します。
 func (c *Client) IsSecureServiceURL(serviceURL string) bool {
 	return securenet.IsSecureServiceURL(serviceURL)
 }

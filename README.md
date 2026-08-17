@@ -15,10 +15,12 @@
 
 - デフォルトで `netarmor/securenet` による SSRF / DNS Rebinding 対策付き client を使用
 - `http`, `https`, `gs`, `s3` の URL 安全性チェック（`gs` / `s3` はクラウド SDK が接続先を決めるため名前解決せず許可）
-- 5xx や一時的な通信エラーを想定した指数バックオフ retry
-- 4xx は `NonRetryableHTTPError` として扱い、retry しない
-- `MaxResponseBodySize` による response body の読み込み制限
+- 5xx / 408 / 429 や一時的な通信エラーを想定した指数バックオフ retry
+- その他の 4xx は `NonRetryableHTTPError` として扱い、retry しない
+- `MaxResponseBodySize` による response body の読み込み制限（`WithMaxResponseBodySize` でクライアント単位に変更可能）
+- stream download は全体 timeout に縛られない専用クライアントで実行（コネクションプールは共有）
 - GET / POST JSON / POST raw body / stream download の helper
+- `WithUserAgent` / `WithoutBrowserHeaders` による共通ヘッダーのカスタマイズ
 - `WithHTTPClient` による `Doer` 注入
 - `WithoutRetry` による、設定とコネクションプールを共有した retry なしクライアントの派生
 
@@ -84,21 +86,24 @@ client := httpkit.New(
 )
 ```
 
-`WithHTTPClient` を使う場合も、`FetchBytes` などの helper は `makeRequest` で URL 事前検証を行います。内部ネットワーク向けの custom client と組み合わせる場合は `WithSkipNetworkValidation(true)` も指定してください。
+`WithHTTPClient` を使う場合も、URL の事前検証は retry 実行部で一元的に行われます（helper だけでなく `DoRequest` / `DoStreamRequest` に自前の request を渡す経路も対象です）。内部ネットワーク向けの custom client と組み合わせる場合は `WithSkipNetworkValidation(true)` も指定してください。
+
+共通ヘッダーと response body の上限もクライアント単位で変更できます。
+
+```go
+client := httpkit.New(
+    10*time.Second,
+    httpkit.WithUserAgent("my-service/1.0"), // 既定は Chrome 互換 UA
+    httpkit.WithoutBrowserHeaders(),         // sec-ch-ua 系を送らない
+    httpkit.WithMaxResponseBodySize(5<<20),  // 既定は 25MB
+)
+```
 
 ジョブ投入など非冪等な操作では `WithNoRetry` でリトライを完全に無効化できます。`WithMaxRetries(0)` も同じ効果です。
 
 取得と送信で使い分けたい場合は、クライアントを 2 つ作らずに `WithoutRetry` で派生させてください（[Retry Behavior](#retry-behavior) 参照）。
 
 リトライ設定は `httpkit.RetryConfig` として保持され、内部で netarmor の `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は netarmor 側の既定値が使われます。
-
-```go
-client := httpkit.New(
-    10*time.Second,
-    httpkit.WithHTTPClient(httpClient),
-    httpkit.WithNoRetry(),
-)
-```
 
 ## Request Helpers
 
@@ -145,9 +150,9 @@ body, err := client.PostRawBodyAndFetchBytes(
 
 ### 自前の request を渡す場合 (`DoRequest` / `DoStreamRequest`)
 
-上記の helper は内部の `makeRequest` で **URL の事前検証と共通ヘッダーの付与**を行いますが、`DoRequest` / `DoStreamRequest` は組み立て済みの `*http.Request` を受け取るため、**どちらも行われません**。
+上記の helper は内部の `makeRequest` で共通ヘッダーの付与を行いますが、`DoRequest` / `DoStreamRequest` は組み立て済みの `*http.Request` を受け取るため、ヘッダーは付与されません。URL の事前検証は retry 実行部で一元化されているため、**どの経路でも行われます**。
 
-- **URL 検証なし** — `Doer` 側の DNS Rebinding 対策（接続直前の IP 検証）は効きますが、スキーマや宛先の事前チェックが要るなら `ValidateURL` を自分で呼んでください
+- **URL 検証あり** — helper と同様に SSRF 事前検証が行われます（`WithSkipNetworkValidation(true)` で無効化）
 - **共通ヘッダーなし** — `User-Agent` / `sec-ch-ua` / `Accept-Language` は付きません
 - **body 付きなら `req.GetBody` が必須** — 無い場合、2 回目の retry で `ErrRequestBodyNotReplayable` になります
 
@@ -164,6 +169,10 @@ req.GetBody = func() (io.ReadCloser, error) {
 ## Stream Download
 
 `FetchStream` は response body を callback に渡し、callback 終了後に close します。
+
+stream 系 (`FetchStream` / `GetStream` / `DoStreamRequest`) は、`New` の timeout を**ボディ読み取りには適用しません**。`http.Client.Timeout` は body を読み終わるまでを含むため、そのまま使うと時間のかかるダウンロードが途中で切断されるからです。代わりにヘッダー受信までを timeout で制限し（`Transport.ResponseHeaderTimeout`）、読み取りの寿命は `ctx` で制御してください。コネクションプール（`Transport`）は通常のリクエストと共有されます。
+
+`WithHTTPClient` で注入した client は stream にもそのまま使われるため、その client に `Timeout` が設定されていると従来どおり読み取り途中で切断されます。
 
 ```go
 package main
@@ -217,23 +226,21 @@ defer rc.Close()
 
 ## Retry Behavior
 
-`DoRequest` / helper methods は内部で request を clone して retry します。
-
-body 付き request を独自に作って `DoRequest` に渡す場合、2 回目以降の retry には `req.GetBody` が必要です。`GetBody` がない場合は retry 時にエラーになります。
+`DoRequest` / helper methods は内部で request を clone して retry します。body 付き request を独自に作る場合の `req.GetBody` の注意は [自前の request を渡す場合](#自前の-request-を渡す場合-dorequest--dostreamrequest) を参照してください。
 
 現在の retry 判定:
 
 - `context.Canceled` と `context.DeadlineExceeded` は retry しない
 - `NonRetryableHTTPError` は retry しない
 - 実装上の永続エラー / リクエスト不備は retry しない
-  (`ErrNilResponse`, `ErrNilResponseBody`, `ErrResponseBodyTooLarge`, `ErrRequestBodyNotReplayable`, `ErrRequestBodyRebuild`)
-- `RetryableHTTPError` (5xx) は retry する
+  (`ErrNilRequest`, `ErrNilResponse`, `ErrNilResponseBody`, `ErrResponseBodyTooLarge`, `ErrRequestBodyNotReplayable`, `ErrRequestBodyRebuild`)
+- `RetryableHTTPError` (5xx / 408 / 429) は retry する
 - それ以外の error は一時的な通信エラーの可能性を考慮し、retry 対象として扱う
 
 HTTP status の扱い:
 
 - `2xx`: 成功
-- `5xx`: retry 対象の error
+- `5xx` / `408 Request Timeout` / `429 Too Many Requests`: retry 対象の error
 - その他: `NonRetryableHTTPError`
 
 ### retry 判定は HTTP method を見ません（意図的）
@@ -266,7 +273,7 @@ poster := client.WithoutRetry()         // 送信用: retry なし
 
 ## Error Handling
 
-4xx などの非 retry HTTP error は `NonRetryableHTTPError` として判定できます。
+408 / 429 を除く 4xx などの非 retry HTTP error は `NonRetryableHTTPError` として判定できます。
 
 ```go
 import (
@@ -299,7 +306,9 @@ if httpkit.IsNonRetryableError(err) {
 }
 ```
 
-response body が大きすぎる場合、`HandleResponse` は最大 `MaxResponseBodySize + 1` bytes まで読み込み、制限超過を検出します。`Content-Length` が制限を超えている場合は body を読み込まずに error を返します。
+response body が大きすぎる場合、`HandleResponse` は最大 `MaxResponseBodySize + 1` bytes まで読み込み、制限超過を検出します。`Content-Length` が制限を超えている場合は body を読み込まずに error を返します。上限は `WithMaxResponseBodySize` でクライアント単位に変更できます。
+
+エラー値 (`RetryableHTTPError` / `NonRetryableHTTPError`) が保持する `Body` は `MaxErrorBodySize` (64KB) までに切り詰められます。`Error()` メッセージでの表示はさらに `MaxBodyDisplaySize` (1KB) までです。
 
 ## URL Validation
 
@@ -352,7 +361,7 @@ type URLValidator interface {
     IsSecureServiceURL(serviceURL string) bool
 }
 
-// HTTPClient は上記すべてをまとめたものです。
+// HTTPClient は上記すべてを束ねた集約インターフェースです。
 type HTTPClient interface {
     Doer
     Requester
@@ -371,10 +380,11 @@ type HTTPClient interface {
 | Name | Value | Description |
 | :--- | :--- | :--- |
 | `DefaultHTTPTimeout` | `10 * time.Second` | `New` に 0 以下の timeout を渡した場合の既定値 |
-| `MaxResponseBodySize` | `25MB` | `HandleResponse` が読み込む最大 response body size |
-| `MaxBodyDisplaySize` | `1024` | `RetryableHTTPError` / `NonRetryableHTTPError` の `Error()` が表示する body の最大文字数。stream 系のエラー判定 (`checkResponseStatus`) では body 読み込み自体の上限としても使用 |
-| `UserAgent` | Chrome compatible UA | helper request に設定される User-Agent |
-| `SecChUA` | Chrome 136 の Client Hints | `sec-ch-ua` ヘッダー値 |
+| `MaxResponseBodySize` | `25MB` | buffering 系が読み込む最大 response body size の既定値（`WithMaxResponseBodySize` で変更可能） |
+| `MaxErrorBodySize` | `64KB` | エラー値が `Body` として保持する最大 bytes。stream 系のエラー判定 (`checkResponseStatus`) の読み込み上限も兼ねる |
+| `MaxBodyDisplaySize` | `1024` | `Error()` が表示する body の最大 bytes |
+| `UserAgent` | Chrome compatible UA | helper request の既定 User-Agent（`WithUserAgent` で変更可能） |
+| `SecChUA` | Chrome 151 の Client Hints | `sec-ch-ua` ヘッダー値（`WithoutBrowserHeaders` で無効化） |
 | `AcceptLanguage` | `ja,en-US;q=0.9,en;q=0.8` | `Accept-Language` ヘッダー値 |
 
 ## Project Layout

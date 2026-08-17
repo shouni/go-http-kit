@@ -38,6 +38,19 @@ func TestNew_And_Options(t *testing.T) {
 		client := httpkit.New(1*time.Second, httpkit.WithMaxRetries(0))
 		assert.True(t, client.DisableRetry)
 	})
+
+	t.Run("WithMaxRetriesReenablesRetry", func(t *testing.T) {
+		// 後から指定した WithMaxRetries(n>0) が先行する無効化を上書きすること (オプション順序に依存しない)
+		client := httpkit.New(1*time.Second, httpkit.WithMaxRetries(0), httpkit.WithMaxRetries(3))
+		assert.False(t, client.DisableRetry)
+		assert.Equal(t, uint(3), client.RetryConfig.MaxRetries)
+	})
+
+	t.Run("DefaultUserAgent", func(t *testing.T) {
+		client := httpkit.New(1 * time.Second)
+		assert.Equal(t, httpkit.UserAgent, client.UserAgent)
+		assert.False(t, client.DisableBrowserHeaders)
+	})
 }
 
 func TestClient_ValidateURL(t *testing.T) {

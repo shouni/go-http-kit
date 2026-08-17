@@ -29,5 +29,3 @@ func (m *MockDoer) Do(req *http.Request) (*http.Response, error) {
 	}
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("default"))}, nil
 }
-
-const MaxResponseBodySize = int64(25 * 1024 * 1024)

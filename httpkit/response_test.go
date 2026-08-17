@@ -8,6 +8,7 @@ import (
 
 	"github.com/shouni/go-http-kit/httpkit"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleResponse_Logic(t *testing.T) {
@@ -25,7 +26,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 	t.Run("SizeExceeded_ContentLength", func(t *testing.T) {
 		resp := &http.Response{
 			StatusCode:    http.StatusOK,
-			ContentLength: MaxResponseBodySize + 1,
+			ContentLength: httpkit.MaxResponseBodySize + 1,
 			Body:          io.NopCloser(bytes.NewBufferString("too big")),
 		}
 		_, err := httpkit.HandleResponse(resp)
@@ -45,6 +46,29 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(bytes.NewBufferString("not found"))}
 		_, err := httpkit.HandleResponse(resp)
 		assert.True(t, httpkit.IsNonRetryableError(err))
+	})
+
+	t.Run("Retryable_429", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(bytes.NewBufferString("rate limited"))}
+		_, err := httpkit.HandleResponse(resp)
+		assert.True(t, httpkit.IsRetryableHTTPError(err), "429 はリトライ対象のはず")
+	})
+
+	t.Run("Retryable_408", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusRequestTimeout, Body: io.NopCloser(bytes.NewBufferString("timeout"))}
+		_, err := httpkit.HandleResponse(resp)
+		assert.True(t, httpkit.IsRetryableHTTPError(err), "408 はリトライ対象のはず")
+	})
+
+	t.Run("ErrorBodyCappedAtMaxErrorBodySize", func(t *testing.T) {
+		big := bytes.Repeat([]byte("x"), 3*httpkit.MaxErrorBodySize)
+		resp := &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(bytes.NewReader(big))}
+		_, err := httpkit.HandleResponse(resp)
+
+		var retryable *httpkit.RetryableHTTPError
+		require.ErrorAs(t, err, &retryable)
+		assert.Len(t, retryable.Body, httpkit.MaxErrorBodySize,
+			"エラー値が保持するボディは MaxErrorBodySize までに切り詰められるはず")
 	})
 }
 
