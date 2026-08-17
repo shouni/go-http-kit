@@ -76,6 +76,35 @@ func TestFetchStream(t *testing.T) {
 	})
 }
 
+// TestGetStream_NotKilledByClientTimeout は、クライアント全体のタイムアウトより
+// 長くかかるストリーム読み取りが途中で切断されないことを検証します。
+// http.Client.Timeout はボディ読み取りまで含むため、ストリームには全体タイムアウトの
+// ない streamClient を使う必要があります。
+func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		require.True(t, ok)
+		w.WriteHeader(http.StatusOK)
+		for range 3 {
+			_, _ = w.Write([]byte("chunk"))
+			flusher.Flush()
+			time.Sleep(100 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	// 全体タイムアウト 150ms のクライアント。ボディの読み取りには 300ms 以上かかる。
+	c := New(150*time.Millisecond, WithSkipNetworkValidation(true), WithNoRetry())
+
+	rc, err := c.GetStream(context.Background(), server.URL)
+	require.NoError(t, err)
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err, "ストリームがクライアント全体のタイムアウトで切断されています")
+	assert.Equal(t, "chunkchunkchunk", string(data))
+}
+
 func TestCheckResponseStatus(t *testing.T) {
 	t.Run("NilBody", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusInternalServerError}

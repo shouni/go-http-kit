@@ -75,6 +75,167 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 		assert.Contains(t, err.Error(), "SSRF安全検証エラー")
 		assert.Equal(t, 0, mock.CallCount) // 通信が発生していないこと
 	})
+
+	t.Run("SSRF_Block_HandBuiltRequest", func(t *testing.T) {
+		// 手組みの *http.Request を DoRequest に渡す経路でも SSRF 事前検証が効くこと
+		mock := &MockDoer{}
+		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/latest/meta-data/", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SSRF安全検証エラー")
+		assert.Equal(t, 0, mock.CallCount) // 通信が発生していないこと
+	})
+
+	t.Run("NilRequest", func(t *testing.T) {
+		client := httpkit.New(1 * time.Second)
+		_, err := client.DoRequest(nil)
+		assert.ErrorIs(t, err, httpkit.ErrNilRequest)
+	})
+}
+
+func TestClient_RetryOn429(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &MockDoer{
+		Responses: []*http.Response{
+			{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(bytes.NewBufferString("slow down"))},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
+		},
+	}
+	client := httpkit.New(1*time.Second,
+		httpkit.WithHTTPClient(mock),
+		httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithMaxRetries(1),
+		httpkit.WithInitialInterval(1*time.Millisecond),
+		httpkit.WithMaxInterval(1*time.Millisecond),
+	)
+
+	body, _, err := client.FetchBytes(ctx, "https://example.com")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("recovered"), body)
+	assert.Equal(t, 2, mock.CallCount, "429 はリトライ対象として再試行されるはず")
+}
+
+// TestClient_RetryOn429HonorsRetryAfter は、429 の Retry-After ヘッダーが
+// 次のリトライまでの待機時間として尊重されることを検証します。
+// 指数バックオフの設定 (1ms) より Retry-After (1秒) が優先されます。
+func TestClient_RetryOn429HonorsRetryAfter(t *testing.T) {
+	ctx := context.Background()
+
+	mock := &MockDoer{
+		Responses: []*http.Response{
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Retry-After": []string{"1"}},
+				Body:       io.NopCloser(bytes.NewBufferString("slow down")),
+			},
+			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
+		},
+	}
+	client := httpkit.New(5*time.Second,
+		httpkit.WithHTTPClient(mock),
+		httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithMaxRetries(1),
+		httpkit.WithInitialInterval(1*time.Millisecond),
+		httpkit.WithMaxInterval(1*time.Millisecond),
+	)
+
+	start := time.Now()
+	body, _, err := client.FetchBytes(ctx, "https://example.com")
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Equal(t, []byte("recovered"), body)
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond,
+		"Retry-After: 1 が待機時間として使われるはず (実測 %v)", elapsed)
+}
+
+func TestClient_HeaderCustomization(t *testing.T) {
+	ctx := context.Background()
+
+	capture := func(mock *MockDoer, got *http.Header) {
+		mock.CustomDo = func(req *http.Request) (*http.Response, error) {
+			*got = req.Header.Clone()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewBufferString("ok")),
+			}, nil
+		}
+	}
+
+	t.Run("DefaultBrowserHeaders", func(t *testing.T) {
+		var got http.Header
+		mock := &MockDoer{}
+		capture(mock, &got)
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+		)
+
+		_, _, err := client.FetchBytes(ctx, "https://example.com")
+		require.NoError(t, err)
+		assert.Equal(t, httpkit.UserAgent, got.Get("User-Agent"))
+		assert.Equal(t, httpkit.SecChUA, got.Get("sec-ch-ua"))
+		assert.Equal(t, httpkit.SecChUAMobile, got.Get("sec-ch-ua-mobile"))
+		assert.Equal(t, httpkit.SecChUAPlatform, got.Get("sec-ch-ua-platform"))
+		assert.Equal(t, httpkit.AcceptLanguage, got.Get("Accept-Language"))
+	})
+
+	t.Run("WithUserAgentAndWithoutBrowserHeaders", func(t *testing.T) {
+		var got http.Header
+		mock := &MockDoer{}
+		capture(mock, &got)
+		client := httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithUserAgent("my-service/1.0"),
+			httpkit.WithoutBrowserHeaders(),
+		)
+
+		_, _, err := client.FetchBytes(ctx, "https://example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "my-service/1.0", got.Get("User-Agent"))
+		assert.Empty(t, got.Get("sec-ch-ua"))
+		assert.Empty(t, got.Get("sec-ch-ua-mobile"))
+		assert.Empty(t, got.Get("sec-ch-ua-platform"))
+		assert.Equal(t, httpkit.AcceptLanguage, got.Get("Accept-Language"), "Accept-Language は引き続き送信される")
+	})
+}
+
+func TestClient_WithMaxResponseBodySize(t *testing.T) {
+	ctx := context.Background()
+
+	newClient := func(mock *MockDoer, limit int64) *httpkit.Client {
+		return httpkit.New(1*time.Second,
+			httpkit.WithHTTPClient(mock),
+			httpkit.WithSkipNetworkValidation(true),
+			httpkit.WithNoRetry(),
+			httpkit.WithMaxResponseBodySize(limit),
+		)
+	}
+
+	t.Run("ExceedsLimit", func(t *testing.T) {
+		mock := &MockDoer{Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("0123456789"))},
+		}}
+
+		_, _, err := newClient(mock, 5).FetchBytes(ctx, "https://example.com")
+		assert.ErrorIs(t, err, httpkit.ErrResponseBodyTooLarge)
+	})
+
+	t.Run("WithinLimit", func(t *testing.T) {
+		mock := &MockDoer{Responses: []*http.Response{
+			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("0123456789"))},
+		}}
+
+		body, _, err := newClient(mock, 10).FetchBytes(ctx, "https://example.com")
+		require.NoError(t, err)
+		assert.Equal(t, []byte("0123456789"), body)
+	})
 }
 
 func TestClient_WithNoRetry(t *testing.T) {

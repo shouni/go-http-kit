@@ -13,7 +13,15 @@ import (
 // ----------------------------------------------------------------------
 
 // HandleResponse はHTTPレスポンスを処理し、成功した場合はボディをバイト配列として返します。
+// ボディの読み込みは MaxResponseBodySize までに制限されます。
+// WithMaxResponseBodySize によるクライアント単位の上限は、Client のメソッド
+// (DoRequest / FetchBytes 等) 経由の処理でのみ反映されます。
 func HandleResponse(resp *http.Response) ([]byte, error) {
+	return handleResponseWithLimit(resp, MaxResponseBodySize)
+}
+
+// handleResponseWithLimit は HandleResponse の本体で、ボディの最大サイズを引数に取ります。
+func handleResponseWithLimit(resp *http.Response, maxBodySize int64) ([]byte, error) {
 	if resp == nil {
 		return nil, ErrNilResponse
 	}
@@ -24,25 +32,22 @@ func HandleResponse(resp *http.Response) ([]byte, error) {
 
 	// ContentLengthは信頼できない場合があるため、io.LimitReaderが最終的な制限となる。
 	// ただし、非常に大きなボディに対する早期リターンとして、ヘッダー値のチェックは維持する。
-	if resp.ContentLength > 0 && resp.ContentLength > MaxResponseBodySize {
-		// この場合、ボディを読み込まずにエラーを返す（Content-Lengthによる早期検出）
-		return nil, fmt.Errorf("%w: レスポンスボディが最大サイズ (%dバイト) を超える可能性があります (Content-Length: %d)", ErrResponseBodyTooLarge, MaxResponseBodySize, resp.ContentLength)
+	if resp.ContentLength > maxBodySize {
+		return nil, fmt.Errorf("%w: レスポンスボディが最大サイズ (%dバイト) を超える可能性があります (Content-Length: %d)", ErrResponseBodyTooLarge, maxBodySize, resp.ContentLength)
 	}
 
-	// MaxResponseBodySize + 1 バイトで制限超過を検出する
-	limitedReader := io.LimitReader(resp.Body, MaxResponseBodySize+1)
+	// maxBodySize + 1 バイトで制限超過を検出する
+	limitedReader := io.LimitReader(resp.Body, maxBodySize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrResponseBodyRead, err)
 	}
 
-	// 実際に読み込んだバイト数が制限値を超えているかチェック
-	// len(bodyBytes)がMaxResponseBodySize+1の場合、超過があったと判断する
-	if int64(len(bodyBytes)) > MaxResponseBodySize {
-		return nil, fmt.Errorf("%w: レスポンスボディのサイズが制限値 (%dバイト) を超過しました", ErrResponseBodyTooLarge, MaxResponseBodySize)
+	if int64(len(bodyBytes)) > maxBodySize {
+		return nil, fmt.Errorf("%w: レスポンスボディのサイズが制限値 (%dバイト) を超過しました", ErrResponseBodyTooLarge, maxBodySize)
 	}
 
-	if err := classifyStatusError(resp.StatusCode, bodyBytes); err != nil {
+	if err := classifyStatusError(resp.StatusCode, bodyBytes, parseRetryAfter(resp.Header.Get("Retry-After"))); err != nil {
 		return nil, err
 	}
 	return bodyBytes, nil
@@ -68,7 +73,8 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 	}
 
 	// 3. 実装上の永続エラーやリクエスト不備はリトライしない
-	if errors.Is(err, ErrNilResponse) ||
+	if errors.Is(err, ErrNilRequest) ||
+		errors.Is(err, ErrNilResponse) ||
 		errors.Is(err, ErrNilResponseBody) ||
 		errors.Is(err, ErrResponseBodyTooLarge) ||
 		errors.Is(err, ErrRequestBodyNotReplayable) ||
@@ -76,7 +82,7 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 		return false
 	}
 
-	// 4. 5xxエラーをリトライ対象とする
+	// 4. リトライ対象のHTTPエラー (5xx / 408 / 429) はリトライする
 	if IsRetryableHTTPError(err) {
 		return true
 	}
@@ -98,9 +104,7 @@ func HandleLimitedResponse(resp *http.Response, limit int64) ([]byte, error) {
 	limitedReader := io.LimitReader(resp.Body, limit)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
-		// ボディ読み込み自体が失敗した場合
 		return nil, fmt.Errorf("%w: %w", ErrResponseBodyRead, err)
 	}
-	// 成功またはボディ読み込みが部分的に成功したバイト列を返す
 	return bodyBytes, nil
 }

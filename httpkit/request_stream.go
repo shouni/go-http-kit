@@ -8,23 +8,25 @@ import (
 )
 
 // DoStreamRequest はレスポンスボディ (io.ReadCloser) を返します。
+// 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
+//
+// ストリーム用クライアントで実行されるため、クライアント全体のタイムアウトは
+// 適用されず、ボディ読み取りの寿命はリクエストの ctx に委ねられます
+// （WithHTTPClient で注入した Doer を使う場合はその設定に従います）。
 func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 	var body io.ReadCloser
 
 	err := c.executeWithClone(req, func(r *http.Request) error {
-		resp, err := c.Do(r)
+		resp, err := c.doStream(r)
 		if err != nil {
 			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
 		}
-		if resp == nil {
-			return ErrNilResponse
-		}
-		if resp.Body == nil {
-			return ErrNilResponseBody
-		}
 
+		// nil レスポンス/ボディの検査は checkResponseStatus に集約されている
 		if err := checkResponseStatus(resp); err != nil {
-			_ = resp.Body.Close()
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 			return err
 		}
 
@@ -38,14 +40,17 @@ func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
 	return body, nil
 }
 
+// doStream はストリーム用の Doer でリクエストを実行します。
+func (c *Client) doStream(req *http.Request) (*http.Response, error) {
+	if c.streamClient != nil {
+		return c.streamClient.Do(req)
+	}
+	return c.httpClient.Do(req)
+}
+
 // FetchStream は GET リクエストを送信し、レスポンスボディをストリームとして処理します。
 func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error {
-	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-
-	rc, err := c.DoStreamRequest(req)
+	rc, err := c.GetStream(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -64,12 +69,12 @@ func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, erro
 		return nil, err
 	}
 
-	// 既存の DoStreamRequest を活用する
 	return c.DoStreamRequest(req)
 }
 
 // checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を最大 MaxBodyDisplaySize バイト読み込みます。
+// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を
+// 最大 MaxErrorBodySize バイト読み込みます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return ErrNilResponse
@@ -81,10 +86,10 @@ func checkResponseStatus(resp *http.Response) error {
 		return nil
 	}
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyDisplaySize))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, MaxErrorBodySize))
 	if err != nil && len(bodyBytes) == 0 {
 		bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
 	}
 
-	return classifyStatusError(resp.StatusCode, bodyBytes)
+	return classifyStatusError(resp.StatusCode, bodyBytes, parseRetryAfter(resp.Header.Get("Retry-After")))
 }
