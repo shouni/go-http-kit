@@ -64,7 +64,9 @@ func TestClient_ValidateURL(t *testing.T) {
 		wantErr error // nil なら安全と判定されることを期待
 	}{
 		{"Valid Public URL", "https://google.com", nil},
-		{"Valid GCS Scheme", "gs://my-bucket/obj", nil},
+		// netarmor v1.3.0 以降、許可スキームは http/https のみ (gs/s3 は廃止)
+		{"GCS Scheme Rejected", "gs://my-bucket/obj", securenet.ErrDisallowedScheme},
+		{"S3 Scheme Rejected", "s3://my-bucket/data.json", securenet.ErrDisallowedScheme},
 		{"Loopback IPv4", "http://127.0.0.1", securenet.ErrRestrictedIP},
 		{"Loopback IPv6", "http://[::1]", securenet.ErrRestrictedIP},
 		{"Private IPv4 Class A", "http://10.0.0.1", securenet.ErrRestrictedIP},
