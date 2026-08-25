@@ -3,14 +3,15 @@ package httpkit_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/shouni/go-http-kit/httpkit"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
@@ -37,10 +38,18 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 		)
 
 		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
-		require.NoError(t, err)
-		assert.Equal(t, []byte("recovered"), body)
-		assert.Equal(t, "application/xhtml+xml", contentType)
-		assert.Equal(t, 2, mock.CallCount)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if !bytes.Equal(body, []byte("recovered")) {
+			t.Errorf("body = %q, 期待 %q", body, "recovered")
+		}
+		if contentType != "application/xhtml+xml" {
+			t.Errorf("contentType = %q, 期待 %q", contentType, "application/xhtml+xml")
+		}
+		if mock.CallCount != 2 {
+			t.Errorf("CallCount = %d, 期待 2", mock.CallCount)
+		}
 	})
 
 	t.Run("ContentTypeとボディを取得できる", func(t *testing.T) {
@@ -60,10 +69,18 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 		)
 
 		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
-		require.NoError(t, err)
-		assert.Equal(t, []byte("<html></html>"), body)
-		assert.Equal(t, "text/html; charset=utf-8", contentType)
-		assert.Equal(t, 1, mock.CallCount)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if !bytes.Equal(body, []byte("<html></html>")) {
+			t.Errorf("body = %q, 期待 %q", body, "<html></html>")
+		}
+		if contentType != "text/html; charset=utf-8" {
+			t.Errorf("contentType = %q, 期待 %q", contentType, "text/html; charset=utf-8")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
+		}
 	})
 
 	t.Run("SSRF_Block_Default", func(t *testing.T) {
@@ -71,9 +88,15 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
 
 		_, _, err := client.FetchBytes(ctx, "http://169.254.169.254") // Metadata endpoint
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "SSRF安全検証エラー")
-		assert.Equal(t, 0, mock.CallCount) // 通信が発生していないこと
+		if err == nil {
+			t.Fatal("SSRF 対象の URL でエラーが返っていません")
+		}
+		if !strings.Contains(err.Error(), "SSRF安全検証エラー") {
+			t.Errorf("エラーメッセージが想定と異なります: %v", err)
+		}
+		if mock.CallCount != 0 {
+			t.Errorf("通信が発生しています: CallCount = %d, 期待 0", mock.CallCount)
+		}
 	})
 
 	t.Run("SSRF_Block_HandBuiltRequest", func(t *testing.T) {
@@ -82,18 +105,28 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/latest/meta-data/", nil)
-		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("リクエストの生成に失敗しました: %v", err)
+		}
 
 		_, err = client.DoRequest(req)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "SSRF安全検証エラー")
-		assert.Equal(t, 0, mock.CallCount) // 通信が発生していないこと
+		if err == nil {
+			t.Fatal("SSRF 対象の URL でエラーが返っていません")
+		}
+		if !strings.Contains(err.Error(), "SSRF安全検証エラー") {
+			t.Errorf("エラーメッセージが想定と異なります: %v", err)
+		}
+		if mock.CallCount != 0 {
+			t.Errorf("通信が発生しています: CallCount = %d, 期待 0", mock.CallCount)
+		}
 	})
 
 	t.Run("NilRequest", func(t *testing.T) {
 		client := httpkit.New(1 * time.Second)
 		_, err := client.DoRequest(nil)
-		assert.ErrorIs(t, err, httpkit.ErrNilRequest)
+		if !errors.Is(err, httpkit.ErrNilRequest) {
+			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilRequest)
+		}
 	})
 }
 
@@ -115,9 +148,15 @@ func TestClient_RetryOn429(t *testing.T) {
 	)
 
 	body, _, err := client.FetchBytes(ctx, "https://example.com")
-	require.NoError(t, err)
-	assert.Equal(t, []byte("recovered"), body)
-	assert.Equal(t, 2, mock.CallCount, "429 はリトライ対象として再試行されるはず")
+	if err != nil {
+		t.Fatalf("予期しないエラー: %v", err)
+	}
+	if !bytes.Equal(body, []byte("recovered")) {
+		t.Errorf("body = %q, 期待 %q", body, "recovered")
+	}
+	if mock.CallCount != 2 {
+		t.Errorf("429 はリトライ対象として再試行されるはず: CallCount = %d, 期待 2", mock.CallCount)
+	}
 }
 
 // TestClient_RetryOn429HonorsRetryAfter は、429 の Retry-After ヘッダーが
@@ -148,10 +187,15 @@ func TestClient_RetryOn429HonorsRetryAfter(t *testing.T) {
 	body, _, err := client.FetchBytes(ctx, "https://example.com")
 	elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	assert.Equal(t, []byte("recovered"), body)
-	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond,
-		"Retry-After: 1 が待機時間として使われるはず (実測 %v)", elapsed)
+	if err != nil {
+		t.Fatalf("予期しないエラー: %v", err)
+	}
+	if !bytes.Equal(body, []byte("recovered")) {
+		t.Errorf("body = %q, 期待 %q", body, "recovered")
+	}
+	if elapsed < 900*time.Millisecond {
+		t.Errorf("Retry-After: 1 が待機時間として使われるはず (実測 %v)", elapsed)
+	}
 }
 
 func TestClient_HeaderCustomization(t *testing.T) {
@@ -177,12 +221,20 @@ func TestClient_HeaderCustomization(t *testing.T) {
 		)
 
 		_, _, err := client.FetchBytes(ctx, "https://example.com")
-		require.NoError(t, err)
-		assert.Equal(t, httpkit.UserAgent, got.Get("User-Agent"))
-		assert.Equal(t, httpkit.SecChUA, got.Get("sec-ch-ua"))
-		assert.Equal(t, httpkit.SecChUAMobile, got.Get("sec-ch-ua-mobile"))
-		assert.Equal(t, httpkit.SecChUAPlatform, got.Get("sec-ch-ua-platform"))
-		assert.Equal(t, httpkit.AcceptLanguage, got.Get("Accept-Language"))
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		for _, tc := range []struct{ header, want string }{
+			{"User-Agent", httpkit.UserAgent},
+			{"sec-ch-ua", httpkit.SecChUA},
+			{"sec-ch-ua-mobile", httpkit.SecChUAMobile},
+			{"sec-ch-ua-platform", httpkit.SecChUAPlatform},
+			{"Accept-Language", httpkit.AcceptLanguage},
+		} {
+			if v := got.Get(tc.header); v != tc.want {
+				t.Errorf("%s = %q, 期待 %q", tc.header, v, tc.want)
+			}
+		}
 	})
 
 	t.Run("WithUserAgentAndWithoutBrowserHeaders", func(t *testing.T) {
@@ -197,12 +249,20 @@ func TestClient_HeaderCustomization(t *testing.T) {
 		)
 
 		_, _, err := client.FetchBytes(ctx, "https://example.com")
-		require.NoError(t, err)
-		assert.Equal(t, "my-service/1.0", got.Get("User-Agent"))
-		assert.Empty(t, got.Get("sec-ch-ua"))
-		assert.Empty(t, got.Get("sec-ch-ua-mobile"))
-		assert.Empty(t, got.Get("sec-ch-ua-platform"))
-		assert.Equal(t, httpkit.AcceptLanguage, got.Get("Accept-Language"), "Accept-Language は引き続き送信される")
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if v := got.Get("User-Agent"); v != "my-service/1.0" {
+			t.Errorf("User-Agent = %q, 期待 %q", v, "my-service/1.0")
+		}
+		for _, h := range []string{"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform"} {
+			if v := got.Get(h); v != "" {
+				t.Errorf("%s = %q, 期待 空", h, v)
+			}
+		}
+		if v := got.Get("Accept-Language"); v != httpkit.AcceptLanguage {
+			t.Errorf("Accept-Language は引き続き送信される: %q", v)
+		}
 	})
 }
 
@@ -224,7 +284,9 @@ func TestClient_WithMaxResponseBodySize(t *testing.T) {
 		}}
 
 		_, _, err := newClient(mock, 5).FetchBytes(ctx, "https://example.com")
-		assert.ErrorIs(t, err, httpkit.ErrResponseBodyTooLarge)
+		if !errors.Is(err, httpkit.ErrResponseBodyTooLarge) {
+			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrResponseBodyTooLarge)
+		}
 	})
 
 	t.Run("WithinLimit", func(t *testing.T) {
@@ -233,8 +295,12 @@ func TestClient_WithMaxResponseBodySize(t *testing.T) {
 		}}
 
 		body, _, err := newClient(mock, 10).FetchBytes(ctx, "https://example.com")
-		require.NoError(t, err)
-		assert.Equal(t, []byte("0123456789"), body)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if !bytes.Equal(body, []byte("0123456789")) {
+			t.Errorf("body = %q, 期待 %q", body, "0123456789")
+		}
 	})
 }
 
@@ -256,8 +322,12 @@ func TestClient_WithNoRetry(t *testing.T) {
 		)
 
 		_, _, err := client.FetchBytes(ctx, "https://example.com")
-		assert.Error(t, err, "リトライが無効な場合、最初の一時的エラーがそのまま返るはず")
-		assert.Equal(t, 1, mock.CallCount, "リトライされず1回だけ呼ばれるはず")
+		if err == nil {
+			t.Fatal("リトライが無効な場合、最初の一時的エラーがそのまま返るはず")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("リトライされず1回だけ呼ばれるはず: CallCount = %d", mock.CallCount)
+		}
 	})
 
 	t.Run("DoesNotRetryOn5xx", func(t *testing.T) {
@@ -278,8 +348,12 @@ func TestClient_WithNoRetry(t *testing.T) {
 		)
 
 		_, err := client.PostRawBodyAndFetchBytes(ctx, "https://example.com/jobs", []byte("body"), "text/plain")
-		assert.Error(t, err)
-		assert.Equal(t, 1, mock.CallCount, "非冪等なPOSTは5xxでもリトライされず1回だけ呼ばれるはず")
+		if err == nil {
+			t.Fatal("5xx はエラーとして返る想定です")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("非冪等なPOSTは5xxでもリトライされず1回だけ呼ばれるはず: CallCount = %d", mock.CallCount)
+		}
 	})
 }
 
@@ -292,13 +366,23 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		mock = &MockDoer{
 			CustomDo: func(req *http.Request) (*http.Response, error) {
 				mock.CallCount++
-				assert.Equal(t, http.MethodPost, req.Method)
-				assert.Equal(t, "text/plain", req.Header.Get("Content-Type"))
-				assert.Equal(t, httpkit.UserAgent, req.Header.Get("User-Agent"))
+				if req.Method != http.MethodPost {
+					t.Errorf("Method = %q, 期待 %q", req.Method, http.MethodPost)
+				}
+				if v := req.Header.Get("Content-Type"); v != "text/plain" {
+					t.Errorf("Content-Type = %q, 期待 %q", v, "text/plain")
+				}
+				if v := req.Header.Get("User-Agent"); v != httpkit.UserAgent {
+					t.Errorf("User-Agent = %q, 期待 %q", v, httpkit.UserAgent)
+				}
 
 				gotBody, err := io.ReadAll(req.Body)
-				require.NoError(t, err)
-				assert.Equal(t, body, gotBody)
+				if err != nil {
+					t.Fatalf("ボディの読み込みに失敗しました: %v", err)
+				}
+				if !bytes.Equal(gotBody, body) {
+					t.Errorf("body = %q, 期待 %q", gotBody, body)
+				}
 
 				return &http.Response{
 					StatusCode: http.StatusOK,
@@ -313,9 +397,15 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		)
 
 		res, err := client.PostRawBodyAndFetchBytes(ctx, "https://example.com/post", body, "text/plain")
-		require.NoError(t, err)
-		assert.Equal(t, []byte("ok"), res)
-		assert.Equal(t, 1, mock.CallCount)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if !bytes.Equal(res, []byte("ok")) {
+			t.Errorf("res = %q, 期待 %q", res, "ok")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
+		}
 	})
 
 	t.Run("PostJSONAndFetchBytes_ReplaysBodyOnRetry", func(t *testing.T) {
@@ -328,10 +418,14 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		mock = &MockDoer{
 			CustomDo: func(req *http.Request) (*http.Response, error) {
 				mock.CallCount++
-				assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+				if v := req.Header.Get("Content-Type"); v != "application/json" {
+					t.Errorf("Content-Type = %q, 期待 %q", v, "application/json")
+				}
 
 				gotBody, err := io.ReadAll(req.Body)
-				require.NoError(t, err)
+				if err != nil {
+					t.Fatalf("ボディの読み込みに失敗しました: %v", err)
+				}
 				bodies = append(bodies, string(gotBody))
 
 				if mock.CallCount == 1 {
@@ -355,10 +449,19 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		)
 
 		res, err := client.PostJSONAndFetchBytes(ctx, "https://example.com/post", payload{Name: "kit"})
-		require.NoError(t, err)
-		assert.Equal(t, []byte("created"), res)
-		assert.Equal(t, []string{`{"name":"kit"}`, `{"name":"kit"}`}, bodies)
-		assert.Equal(t, 2, mock.CallCount)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if !bytes.Equal(res, []byte("created")) {
+			t.Errorf("res = %q, 期待 %q", res, "created")
+		}
+		wantBodies := []string{`{"name":"kit"}`, `{"name":"kit"}`}
+		if !slices.Equal(bodies, wantBodies) {
+			t.Errorf("bodies = %q, 期待 %q", bodies, wantBodies)
+		}
+		if mock.CallCount != 2 {
+			t.Errorf("CallCount = %d, 期待 2", mock.CallCount)
+		}
 	})
 
 	t.Run("FetchAndDecodeJSON", func(t *testing.T) {
@@ -377,9 +480,15 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 			Name string `json:"name"`
 		}
 		err := client.FetchAndDecodeJSON(ctx, "https://example.com/data", &out)
-		require.NoError(t, err)
-		assert.Equal(t, "kit", out.Name)
-		assert.Equal(t, 1, mock.CallCount)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
+		if out.Name != "kit" {
+			t.Errorf("out.Name = %q, 期待 %q", out.Name, "kit")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
+		}
 	})
 
 	t.Run("GetStream", func(t *testing.T) {
@@ -395,12 +504,20 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		)
 
 		rc, err := client.GetStream(ctx, "https://example.com/stream")
-		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("予期しないエラー: %v", err)
+		}
 		defer rc.Close()
 
 		data, err := io.ReadAll(rc)
-		require.NoError(t, err)
-		assert.Equal(t, "stream-data", string(data))
-		assert.Equal(t, 1, mock.CallCount)
+		if err != nil {
+			t.Fatalf("ストリームの読み込みに失敗しました: %v", err)
+		}
+		if string(data) != "stream-data" {
+			t.Errorf("data = %q, 期待 %q", data, "stream-data")
+		}
+		if mock.CallCount != 1 {
+			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
+		}
 	})
 }

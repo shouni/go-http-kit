@@ -4,35 +4,45 @@ import (
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNew_ImplementationSwitch(t *testing.T) {
 	t.Run("Default should use SafeHTTPClient (with custom DialContext)", func(t *testing.T) {
 		client := New(1 * time.Second)
 		hc, ok := client.httpClient.(*http.Client)
-		require.True(t, ok)
+		if !ok {
+			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+		}
 
 		// securenet.NewSafeHTTPClient は必ず独自の Transport を生成してセットする
-		assert.NotNil(t, hc.Transport, "SafeHTTPClient must have an explicit Transport")
+		if hc.Transport == nil {
+			t.Fatal("SafeHTTPClient must have an explicit Transport")
+		}
 
 		tr, ok := hc.Transport.(*http.Transport)
-		require.True(t, ok)
-		assert.NotNil(t, tr.DialContext, "SafeHTTPClient must have a custom DialContext")
+		if !ok {
+			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+		}
+		if tr.DialContext == nil {
+			t.Error("SafeHTTPClient must have a custom DialContext")
+		}
 	})
 
 	t.Run("SkipNetworkValidation should use standard http.Client with a cloned Transport", func(t *testing.T) {
 		client := New(1*time.Second, WithSkipNetworkValidation(true))
 		hc, ok := client.httpClient.(*http.Client)
-		require.True(t, ok)
+		if !ok {
+			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+		}
 
 		// ResponseHeaderTimeout の設定が DefaultTransport へ波及しないよう、
 		// clone した Transport を明示的に持つ
-		_, ok = hc.Transport.(*http.Transport)
-		require.True(t, ok)
-		assert.NotSame(t, http.DefaultTransport, hc.Transport, "DefaultTransport を直接共有してはいけない")
+		if _, ok := hc.Transport.(*http.Transport); !ok {
+			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+		}
+		if hc.Transport == http.DefaultTransport {
+			t.Error("DefaultTransport を直接共有してはいけない")
+		}
 	})
 }
 
@@ -41,23 +51,39 @@ func TestNew_StreamClientSeparation(t *testing.T) {
 		client := New(1 * time.Second)
 
 		hc, ok := client.httpClient.(*http.Client)
-		require.True(t, ok)
+		if !ok {
+			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+		}
 		sc, ok := client.streamClient.(*http.Client)
-		require.True(t, ok)
+		if !ok {
+			t.Fatalf("streamClient が *http.Client ではありません: %T", client.streamClient)
+		}
 
-		assert.Same(t, hc.Transport, sc.Transport, "コネクションプール (Transport) が共有されていません")
-		assert.Equal(t, 1*time.Second, hc.Timeout)
-		assert.Zero(t, sc.Timeout, "ストリーム用クライアントに全体タイムアウトが残っています")
+		if hc.Transport != sc.Transport {
+			t.Error("コネクションプール (Transport) が共有されていません")
+		}
+		if hc.Timeout != 1*time.Second {
+			t.Errorf("hc.Timeout = %v, 期待 %v", hc.Timeout, 1*time.Second)
+		}
+		if sc.Timeout != 0 {
+			t.Errorf("ストリーム用クライアントに全体タイムアウトが残っています: %v", sc.Timeout)
+		}
 
 		tr, ok := hc.Transport.(*http.Transport)
-		require.True(t, ok)
-		assert.Equal(t, 1*time.Second, tr.ResponseHeaderTimeout, "ヘッダー受信タイムアウトが設定されていません")
+		if !ok {
+			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+		}
+		if tr.ResponseHeaderTimeout != 1*time.Second {
+			t.Errorf("ヘッダー受信タイムアウトが設定されていません: %v", tr.ResponseHeaderTimeout)
+		}
 	})
 
 	t.Run("injected Doer is used for streams as-is", func(t *testing.T) {
 		d := &stubDoer{}
 		client := New(1*time.Second, WithHTTPClient(d))
-		assert.Same(t, d, client.streamClient, "注入した Doer がストリームにも使われるべき")
+		if client.streamClient != Doer(d) {
+			t.Error("注入した Doer がストリームにも使われるべき")
+		}
 	})
 }
 
