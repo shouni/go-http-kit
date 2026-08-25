@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestParseRetryAfter(t *testing.T) {
@@ -25,14 +23,17 @@ func TestParseRetryAfter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, parseRetryAfter(tt.value))
+			if got := parseRetryAfter(tt.value); got != tt.want {
+				t.Errorf("parseRetryAfter(%q) = %v, 期待 %v", tt.value, got, tt.want)
+			}
 		})
 	}
 
 	t.Run("未来のHTTP-dateは残り時間になる", func(t *testing.T) {
 		future := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
 		got := parseRetryAfter(future)
-		assert.Greater(t, got, 80*time.Second)
-		assert.LessOrEqual(t, got, 90*time.Second)
+		if got <= 80*time.Second || got > 90*time.Second {
+			t.Errorf("parseRetryAfter = %v, 期待 (80s, 90s]", got)
+		}
 	})
 }

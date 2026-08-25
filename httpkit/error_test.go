@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/shouni/go-http-kit/httpkit"
-	"github.com/stretchr/testify/assert"
 )
 
 type timeoutNetError struct{}
@@ -23,25 +22,42 @@ func TestIsHTTPRetryableError(t *testing.T) {
 	client := httpkit.New(0)
 
 	t.Run("ContextErrors", func(t *testing.T) {
-		assert.False(t, client.IsHTTPRetryableError(context.Canceled))
-		wrapped := fmt.Errorf("fail: %w", context.DeadlineExceeded)
-		assert.False(t, client.IsHTTPRetryableError(wrapped))
+		for _, err := range []error{
+			context.Canceled,
+			fmt.Errorf("fail: %w", context.DeadlineExceeded),
+		} {
+			if client.IsHTTPRetryableError(err) {
+				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+			}
+		}
 	})
 
 	t.Run("RetryableErrors", func(t *testing.T) {
-		assert.True(t, client.IsHTTPRetryableError(&httpkit.RetryableHTTPError{StatusCode: http.StatusInternalServerError}))
-		assert.True(t, client.IsHTTPRetryableError(&httpkit.RetryableHTTPError{StatusCode: http.StatusTooManyRequests}))
-		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("request failed: %w", io.EOF)))
-		assert.True(t, client.IsHTTPRetryableError(fmt.Errorf("plain error")))
+		for _, err := range []error{
+			&httpkit.RetryableHTTPError{StatusCode: http.StatusInternalServerError},
+			&httpkit.RetryableHTTPError{StatusCode: http.StatusTooManyRequests},
+			fmt.Errorf("request failed: %w", io.EOF),
+			fmt.Errorf("plain error"),
+		} {
+			if !client.IsHTTPRetryableError(err) {
+				t.Errorf("IsHTTPRetryableError(%v) = false, 期待 true", err)
+			}
+		}
 	})
 
 	t.Run("PermanentErrors", func(t *testing.T) {
-		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrNilRequest))
-		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrNilResponse))
-		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrNilResponseBody))
-		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrResponseBodyTooLarge))
-		assert.False(t, client.IsHTTPRetryableError(httpkit.ErrRequestBodyNotReplayable))
-		assert.False(t, client.IsHTTPRetryableError(&httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest}))
+		for _, err := range []error{
+			httpkit.ErrNilRequest,
+			httpkit.ErrNilResponse,
+			httpkit.ErrNilResponseBody,
+			httpkit.ErrResponseBodyTooLarge,
+			httpkit.ErrRequestBodyNotReplayable,
+			&httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest},
+		} {
+			if client.IsHTTPRetryableError(err) {
+				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+			}
+		}
 	})
 }
 
@@ -52,18 +68,28 @@ func TestHTTPErrorTypes(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader("server\nerror")),
 		}
 		_, err := httpkit.HandleResponse(resp)
-		assert.True(t, httpkit.IsRetryableHTTPError(err))
-		assert.Contains(t, err.Error(), `server\nerror`)
+		if !httpkit.IsRetryableHTTPError(err) {
+			t.Errorf("IsRetryableHTTPError = false, 期待 true (err: %v)", err)
+		}
+		if !strings.Contains(err.Error(), `server\nerror`) {
+			t.Errorf("エラーメッセージに %q が含まれていません: %v", `server\nerror`, err)
+		}
 	})
 
 	t.Run("NonRetryableHTTPError", func(t *testing.T) {
 		err := &httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest, Body: []byte("bad\nrequest")}
-		assert.True(t, httpkit.IsNonRetryableError(fmt.Errorf("wrapped: %w", err)))
-		assert.Contains(t, err.Error(), `bad\nrequest`)
+		if !httpkit.IsNonRetryableError(fmt.Errorf("wrapped: %w", err)) {
+			t.Error("IsNonRetryableError = false, 期待 true")
+		}
+		if !strings.Contains(err.Error(), `bad\nrequest`) {
+			t.Errorf("エラーメッセージに %q が含まれていません: %v", `bad\nrequest`, err)
+		}
 	})
 
 	t.Run("ErrorsIs", func(t *testing.T) {
 		err := fmt.Errorf("wrapped: %w", httpkit.ErrNilResponse)
-		assert.True(t, errors.Is(err, httpkit.ErrNilResponse))
+		if !errors.Is(err, httpkit.ErrNilResponse) {
+			t.Error("errors.Is(err, ErrNilResponse) = false, 期待 true")
+		}
 	})
 }

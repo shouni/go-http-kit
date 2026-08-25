@@ -9,9 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type doerFunc func(*http.Request) (*http.Response, error)
@@ -53,12 +50,18 @@ func TestFetchStream(t *testing.T) {
 	t.Run("正常系: ストリームが正しく処理される", func(t *testing.T) {
 		err := c.FetchStream(context.Background(), server.URL, func(rc io.Reader) error {
 			data, err := io.ReadAll(rc)
-			require.NoError(t, err, "ストリームの読み込みに失敗しました")
+			if err != nil {
+				t.Fatalf("ストリームの読み込みに失敗しました: %v", err)
+			}
 
-			assert.Equal(t, "stream-data", string(data), "期待値と異なります")
+			if string(data) != "stream-data" {
+				t.Errorf("data = %q, 期待 %q", data, "stream-data")
+			}
 			return nil
 		})
-		require.NoError(t, err, "FetchStreamで予期せぬエラーが発生しました")
+		if err != nil {
+			t.Fatalf("FetchStreamで予期せぬエラーが発生しました: %v", err)
+		}
 	})
 
 	t.Run("異常系: サーバーが500エラーを返す", func(t *testing.T) {
@@ -72,7 +75,9 @@ func TestFetchStream(t *testing.T) {
 		err := c500.FetchStream(context.Background(), server500.URL, func(_ io.Reader) error {
 			return nil
 		})
-		assert.Error(t, err, "5xxエラー時にエラーが返ることを期待していましたがnilでした")
+		if err == nil {
+			t.Error("5xxエラー時にエラーが返ることを期待していましたがnilでした")
+		}
 	})
 }
 
@@ -83,7 +88,10 @@ func TestFetchStream(t *testing.T) {
 func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		flusher, ok := w.(http.Flusher)
-		require.True(t, ok)
+		if !ok {
+			t.Errorf("ResponseWriter が http.Flusher を実装していません")
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		for range 3 {
 			_, _ = w.Write([]byte("chunk"))
@@ -97,19 +105,27 @@ func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
 	c := New(150*time.Millisecond, WithSkipNetworkValidation(true), WithNoRetry())
 
 	rc, err := c.GetStream(context.Background(), server.URL)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("予期しないエラー: %v", err)
+	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
-	require.NoError(t, err, "ストリームがクライアント全体のタイムアウトで切断されています")
-	assert.Equal(t, "chunkchunkchunk", string(data))
+	if err != nil {
+		t.Fatalf("ストリームがクライアント全体のタイムアウトで切断されています: %v", err)
+	}
+	if string(data) != "chunkchunkchunk" {
+		t.Errorf("data = %q, 期待 %q", data, "chunkchunkchunk")
+	}
 }
 
 func TestCheckResponseStatus(t *testing.T) {
 	t.Run("NilBody", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusInternalServerError}
 		err := checkResponseStatus(resp)
-		assert.ErrorIs(t, err, ErrNilResponseBody)
+		if !errors.Is(err, ErrNilResponseBody) {
+			t.Errorf("err = %v, 期待 %v", err, ErrNilResponseBody)
+		}
 	})
 
 	tests := []struct {
@@ -130,10 +146,11 @@ func TestCheckResponseStatus(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader(tt.body)),
 			}
 			err := checkResponseStatus(resp)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
+			if tt.wantErr && err == nil {
+				t.Errorf("checkResponseStatus(%d) = nil, エラーを期待", tt.statusCode)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("checkResponseStatus(%d) = %v, 期待 nil", tt.statusCode, err)
 			}
 		})
 	}
@@ -141,7 +158,9 @@ func TestCheckResponseStatus(t *testing.T) {
 
 func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", nil)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("リクエストの生成に失敗しました: %v", err)
+	}
 
 	t.Run("NilResponse", func(t *testing.T) {
 		c := newTestClientWithDoer(doerFunc(func(_ *http.Request) (*http.Response, error) {
@@ -149,8 +168,12 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 		}))
 
 		rc, err := c.DoStreamRequest(req)
-		assert.Nil(t, rc)
-		assert.ErrorIs(t, err, ErrNilResponse)
+		if rc != nil {
+			t.Errorf("rc = %v, 期待 nil", rc)
+		}
+		if !errors.Is(err, ErrNilResponse) {
+			t.Errorf("err = %v, 期待 %v", err, ErrNilResponse)
+		}
 	})
 
 	t.Run("NilBody", func(t *testing.T) {
@@ -159,8 +182,12 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 		}))
 
 		rc, err := c.DoStreamRequest(req)
-		assert.Nil(t, rc)
-		assert.ErrorIs(t, err, ErrNilResponseBody)
+		if rc != nil {
+			t.Errorf("rc = %v, 期待 nil", rc)
+		}
+		if !errors.Is(err, ErrNilResponseBody) {
+			t.Errorf("err = %v, 期待 %v", err, ErrNilResponseBody)
+		}
 	})
 
 	t.Run("DoError", func(t *testing.T) {
@@ -170,7 +197,11 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 		}))
 
 		rc, err := c.DoStreamRequest(req)
-		assert.Nil(t, rc)
-		assert.ErrorIs(t, err, wantErr)
+		if rc != nil {
+			t.Errorf("rc = %v, 期待 nil", rc)
+		}
+		if !errors.Is(err, wantErr) {
+			t.Errorf("err = %v, 期待 %v", err, wantErr)
+		}
 	})
 }

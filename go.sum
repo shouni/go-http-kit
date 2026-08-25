@@ -1,8 +1,4 @@
-github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
-github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
-github.com/shouni/netarmor v1.2.4 h1:4XYB72XSbxoSF4Sa6BzTFXR604bIN7hVX+n7dh1WV0g=
-github.com/shouni/netarmor v1.2.4/go.mod h1:LEtX1IYPWgX+6uipKehEmI8z2ftzVC6r9DHensCP4QM=
-github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
-github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
-go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
+github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEosZ6A=
+github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
+github.com/shouni/netarmor v1.3.0 h1:/Jaf4n7m2jnDxIKDAvh3cAcrKCsqG3Ajk6nEyadaOtw=
+github.com/shouni/netarmor v1.3.0/go.mod h1:9I46wWqG6E8oUzadDBYOmxqMjsz7TbrfSSCGi2piJaM=
