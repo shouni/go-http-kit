@@ -47,9 +47,9 @@ func TestWithoutRetryKeepsOtherSettings(t *testing.T) {
 func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 	t.Parallel()
 
-	var calls int32
+	var calls atomic.Int32
 	stub := doerFunc(func(req *http.Request) (*http.Response, error) {
-		atomic.AddInt32(&calls, 1)
+		calls.Add(1)
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       http.NoBody,
@@ -66,7 +66,7 @@ func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 	_, err := derived.PostJSONAndFetchBytes(context.Background(), "https://example.com", map[string]string{"a": "b"})
 	require.NoError(t, err)
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&calls), "注入した Doer が使われていません")
+	assert.Equal(t, int32(1), calls.Load(), "注入した Doer が使われていません")
 }
 
 // TestWithoutRetryStopsRepeatingNonIdempotentPost は、派生クライアントが
@@ -77,9 +77,9 @@ func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 	t.Parallel()
 
-	var attempts int32
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&attempts, 1)
+		attempts.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -93,7 +93,7 @@ func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 	_, err := client.WithoutRetry().PostJSONAndFetchBytes(context.Background(), server.URL, map[string]string{"text": "hello"})
 	require.Error(t, err, "5xx はエラーとして返る想定です")
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&attempts), "リトライ無効なのに再送されています")
+	assert.Equal(t, int32(1), attempts.Load(), "リトライ無効なのに再送されています")
 }
 
 // TestRetainedClientStillRetries は、派生元が従来どおりリトライすることを
@@ -101,9 +101,9 @@ func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 func TestRetainedClientStillRetries(t *testing.T) {
 	t.Parallel()
 
-	var attempts int32
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&attempts, 1)
+		attempts.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -119,7 +119,7 @@ func TestRetainedClientStillRetries(t *testing.T) {
 	_, err := client.PostJSONAndFetchBytes(context.Background(), server.URL, map[string]string{"text": "hello"})
 	require.Error(t, err)
 
-	assert.Greater(t, atomic.LoadInt32(&attempts), int32(1), "元のクライアントがリトライしていません")
+	assert.Greater(t, attempts.Load(), int32(1), "元のクライアントがリトライしていません")
 }
 
 // TestWithoutRetryOnNilReceiver は、nil レシーバでもパニックしないことを検証します。
