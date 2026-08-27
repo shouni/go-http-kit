@@ -8,14 +8,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shouni/go-http-kit.svg)](https://pkg.go.dev/github.com/shouni/go-http-kit)
 
-`go-http-kit` は、SSRF / DNS Rebinding 対策、指数バックオフ retry、レスポンスサイズ制限、JSON / stream helper をまとめた HTTP クライアントライブラリです。
+`go-http-kit` は、SSRF / DNS Rebinding 対策、指数バックオフ retry、レスポンスサイズ制限、JSON / stream helper をまとめた HTTP クライアントライブラリ (`httpkit`) と、その土台となる汎用リトライ (`retry`) を提供します。
 
 標準の `net/http` と互換性のある `Doer` interface を使うため、既存の `http.Client` やテスト用 mock を注入できます。
 
 ## Features
 
 - デフォルトで `netarmor/securenet` による SSRF / DNS Rebinding 対策付き client を使用
-- `http`, `https`, `gs`, `s3` の URL 安全性チェック（`gs` / `s3` はクラウド SDK が接続先を決めるため名前解決せず許可）
+- URL 安全性チェックが許可するスキームは `http` / `https` のみ（`gs` / `s3` は netarmor v1.3.0 で廃止され、`ErrDisallowedScheme` になります）
 - 5xx / 408 / 429 や一時的な通信エラーを想定した指数バックオフ retry
 - その他の 4xx は `NonRetryableHTTPError` として扱い、retry しない
 - `MaxResponseBodySize` による response body の読み込み制限（`WithMaxResponseBodySize` でクライアント単位に変更可能）
@@ -24,6 +24,7 @@
 - `WithUserAgent` / `WithoutBrowserHeaders` による共通ヘッダーのカスタマイズ
 - `WithHTTPClient` による `Doer` 注入
 - `WithoutRetry` による、設定とコネクションプールを共有した retry なしクライアントの派生
+- HTTP に依らない汎用リトライを `go-http-kit/retry` として単体で公開（`httpkit` はこの上に乗っています）
 
 ## Quick Start
 
@@ -104,7 +105,7 @@ client := httpkit.New(
 
 取得と送信で使い分けたい場合は、クライアントを 2 つ作らずに `WithoutRetry` で派生させてください（[Retry Behavior](#retry-behavior) 参照）。
 
-リトライ設定は `httpkit.RetryConfig` として保持され、内部で netarmor の `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は netarmor 側の既定値が使われます。
+リトライ設定は `httpkit.RetryConfig` として保持され、内部で `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は `retry` パッケージの既定値が使われます。
 
 ## Request Helpers
 
@@ -246,7 +247,7 @@ HTTP status の扱い:
 
 429/503 などでサーバが `Retry-After` ヘッダーを返した場合は、指数バックオフの算出値の
 代わりにその待機時間を使います（秒数・HTTP-date の両形式に対応）。値は
-`RetryableHTTPError.RetryAfterDelay` として保持され、netarmor `retry.DelayHinter` 経由で
+`RetryableHTTPError.RetryAfterDelay` として保持され、`retry.DelayHinter` 経由で
 リトライ間隔に反映されます。
 
 ### retry 判定は HTTP method を見ません（意図的）
@@ -397,6 +398,10 @@ type HTTPClient interface {
 
 ```text
 go-http-kit
+├── retry/                 # 汎用の指数バックオフ (backoff/v7 のラッパ)。httpkit が乗る土台
+│   ├── retry.go           # Run / RunValue / RunCtx / RunValueCtx
+│   ├── options.go         # With* オプションと既定値
+│   └── errors.go          # *Error と ErrExhausted / ErrPermanent
 └── httpkit/
     ├── client.go          # Client construction, derivation (WithoutRetry), default HTTP client selection
     ├── const.go           # Package constants
@@ -411,7 +416,8 @@ go-http-kit
 
 ## 🤝 依存関係 (Dependencies)
 
-* [shouni/netarmor](https://github.com/shouni/netarmor) - **ネットワークセキュリティ & リトライ戦略**
+* [shouni/netarmor](https://github.com/shouni/netarmor) - **ネットワークセキュリティ（`securenet`）**
+* [cenkalti/backoff/v7](https://github.com/cenkalti/backoff) - `retry` パッケージの指数バックオフ実装
 
 ### 📜 ライセンス (License)
 

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shouni/netarmor/retry"
+	"github.com/shouni/go-http-kit/retry"
 	"github.com/shouni/netarmor/securenet"
 )
 
@@ -20,7 +20,7 @@ import (
 // MaxRetries は初回実行を除いたリトライ回数です。0 はリトライを行わないことを
 // 意味しますが、通常は WithNoRetry / WithMaxRetries(0) 経由で DisableRetry が
 // 設定されるため、この値が 0 のまま使われることはありません。
-// 各インターバルが 0 の場合は netarmor 側の既定値が使用されます。
+// 各インターバルが 0 の場合は retry パッケージの既定値が使用されます。
 type RetryConfig struct {
 	MaxRetries      uint
 	InitialInterval time.Duration
@@ -36,8 +36,8 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
-// retryOptions は RetryConfig を netarmor の retry.Option 列に変換します。
-// 0 値のインターバルは指定せず、netarmor 側の既定値に委ねます。
+// retryOptions は RetryConfig を retry.Option 列に変換します。
+// 0 値のインターバルは指定せず、retry パッケージの既定値に委ねます。
 func (rc RetryConfig) retryOptions() []retry.Option {
 	opts := []retry.Option{retry.WithMaxRetries(rc.MaxRetries)}
 	if rc.InitialInterval > 0 {
