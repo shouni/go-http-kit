@@ -8,14 +8,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shouni/go-http-kit.svg)](https://pkg.go.dev/github.com/shouni/go-http-kit)
 
-`go-http-kit` は、SSRF / DNS Rebinding 対策、指数バックオフ retry、レスポンスサイズ制限、JSON / stream helper をまとめた HTTP クライアントライブラリです。
+`go-http-kit` は、SSRF / DNS Rebinding 対策、指数バックオフ retry、レスポンスサイズ制限、JSON / stream helper をまとめた HTTP クライアントライブラリ (`httpkit`) と、その土台となる汎用リトライ (`retry`) を提供します。
 
 標準の `net/http` と互換性のある `Doer` interface を使うため、既存の `http.Client` やテスト用 mock を注入できます。
 
 ## Features
 
 - デフォルトで `netarmor/securenet` による SSRF / DNS Rebinding 対策付き client を使用
-- `http`, `https`, `gs`, `s3` の URL 安全性チェック（`gs` / `s3` はクラウド SDK が接続先を決めるため名前解決せず許可）
+- URL 安全性チェックが許可するスキームは `http` / `https` のみ（`gs` / `s3` は netarmor v1.3.0 で廃止され、`ErrDisallowedScheme` になります）
 - 5xx / 408 / 429 や一時的な通信エラーを想定した指数バックオフ retry
 - その他の 4xx は `NonRetryableHTTPError` として扱い、retry しない
 - `MaxResponseBodySize` による response body の読み込み制限（`WithMaxResponseBodySize` でクライアント単位に変更可能）
@@ -24,6 +24,7 @@
 - `WithUserAgent` / `WithoutBrowserHeaders` による共通ヘッダーのカスタマイズ
 - `WithHTTPClient` による `Doer` 注入
 - `WithoutRetry` による、設定とコネクションプールを共有した retry なしクライアントの派生
+- HTTP に依らない汎用リトライを `go-http-kit/retry` として単体で公開（`httpkit` はこの上に乗っています）
 
 ## Quick Start
 

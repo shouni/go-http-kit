@@ -15,15 +15,15 @@ gofmt -l .                          # check formatting (CI fails if output is no
 go test -race ./...                 # full test suite, matches CI
 go test -race ./httpkit/... -run TestName   # run a single test
 go test -race ./retry -run 'TestRun/成功'    # retry パッケージ単体
-golangci-lint run                   # lint (CI pins golangci-lint v2.12.2; config in .golangci.yml)
+golangci-lint run                   # lint (config in .golangci.yml; CI uses the shared workflow's pin)
 govulncheck ./...                   # vulnerability scan (also runs in CI)
 ```
 
-CI (`.github/workflows/ci.yml`) runs three parallel jobs on push/PR to `main`/`develop`: build+vet+gofmt+`go test -race`, `golangci-lint`, and `govulncheck`. Go version is read from `go.mod` (currently 1.26).
+CI (`.github/workflows/ci.yml`) is a thin caller of the shared `shouni/workflows/.github/workflows/go-ci.yml@v1`; this repo passes no inputs, so it gets the defaults — three parallel jobs on push/PR to `main`/`develop` (build+vet+gofmt+`go test -race`, `golangci-lint`, `govulncheck`), no coverage upload, and no fuzz job. The golangci-lint version and job timeouts live in that shared workflow, not here. Go version is read from `go.mod` (currently 1.27).
 
 ## Architecture
 
-Everything lives in the `httpkit` package (no internal packages, no subdirectories). Files are split by responsibility, and understanding a request's full path requires reading across several of them:
+Two packages: `httpkit` (the client) and `retry` (the backoff engine it runs on). There are no internal packages. Within `httpkit`, files are split by responsibility, and understanding a request's full path requires reading across several of them:
 
 - **`client.go`** — `Client` struct and `New()`. Holds `httpClient Doer` (buffered paths), `streamClient Doer` (stream paths), `RetryConfig`, `SkipNetworkValidation`, `DisableRetry`, `MaxBodySize`, `UserAgent`, `DisableBrowserHeaders`. `New` applies `ClientOption`s, then `ensureHTTPClient` picks the underlying `Doer`s: if `WithHTTPClient` wasn't used, the buffered client defaults to `securenet.NewSafeHTTPClient` (SSRF/DNS-rebinding-safe) unless `SkipNetworkValidation` is true, in which case it falls back to a plain `http.Client` with a cloned `DefaultTransport`. `newStreamClient` then derives the stream client: same `*http.Transport` (shared connection pool), but `Timeout: 0` — because `http.Client.Timeout` covers body reads and would kill long downloads — with the header phase bounded via `Transport.ResponseHeaderTimeout`. An injected `Doer` is used as-is for both roles.
 - **`options.go`** — functional options (`WithHTTPClient`, `WithMaxRetries`, `WithNoRetry`, `WithInitialInterval`, `WithMaxInterval`, `WithSkipNetworkValidation`, `WithMaxResponseBodySize`, `WithUserAgent`, `WithoutBrowserHeaders`). `WithMaxRetries(0)` sets `DisableRetry` so retries are skipped entirely rather than running one attempt through the backoff machinery; `WithMaxRetries(n>0)` clears `DisableRetry` so option order can't leave retries accidentally disabled.
