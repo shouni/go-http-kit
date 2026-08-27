@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/shouni/netarmor/retry"
+	"github.com/shouni/go-http-kit/retry"
 )
 
 // ----------------------------------------------------------------------
@@ -45,7 +45,7 @@ type RetryableHTTPError struct {
 	RetryAfterDelay time.Duration
 }
 
-// RetryableHTTPError が netarmor/retry の DelayHinter を満たすことを保証します。
+// RetryableHTTPError が retry.DelayHinter を満たすことを保証します。
 // これにより、リトライ時の待機時間としてサーバ指定の Retry-After が尊重されます。
 var _ retry.DelayHinter = (*RetryableHTTPError)(nil)
 

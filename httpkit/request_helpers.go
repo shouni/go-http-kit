@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/shouni/netarmor/retry"
+	"github.com/shouni/go-http-kit/retry"
 )
 
 // makeRequest は、リクエストの構築と共通ヘッダーの付与を行います。

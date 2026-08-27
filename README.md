@@ -104,7 +104,7 @@ client := httpkit.New(
 
 取得と送信で使い分けたい場合は、クライアントを 2 つ作らずに `WithoutRetry` で派生させてください（[Retry Behavior](#retry-behavior) 参照）。
 
-リトライ設定は `httpkit.RetryConfig` として保持され、内部で netarmor の `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は netarmor 側の既定値が使われます。
+リトライ設定は `httpkit.RetryConfig` として保持され、内部で `retry.Run` に渡されます。`InitialInterval` / `MaxInterval` が 0 の場合は `retry` パッケージの既定値が使われます。
 
 ## Request Helpers
 
@@ -246,7 +246,7 @@ HTTP status の扱い:
 
 429/503 などでサーバが `Retry-After` ヘッダーを返した場合は、指数バックオフの算出値の
 代わりにその待機時間を使います（秒数・HTTP-date の両形式に対応）。値は
-`RetryableHTTPError.RetryAfterDelay` として保持され、netarmor `retry.DelayHinter` 経由で
+`RetryableHTTPError.RetryAfterDelay` として保持され、`retry.DelayHinter` 経由で
 リトライ間隔に反映されます。
 
 ### retry 判定は HTTP method を見ません（意図的）
@@ -397,6 +397,10 @@ type HTTPClient interface {
 
 ```text
 go-http-kit
+├── retry/                 # 汎用の指数バックオフ (backoff/v7 のラッパ)。httpkit が乗る土台
+│   ├── retry.go           # Run / RunValue / RunCtx / RunValueCtx
+│   ├── options.go         # With* オプションと既定値
+│   └── errors.go          # *Error と ErrExhausted / ErrPermanent
 └── httpkit/
     ├── client.go          # Client construction, derivation (WithoutRetry), default HTTP client selection
     ├── const.go           # Package constants
@@ -411,7 +415,8 @@ go-http-kit
 
 ## 🤝 依存関係 (Dependencies)
 
-* [shouni/netarmor](https://github.com/shouni/netarmor) - **ネットワークセキュリティ & リトライ戦略**
+* [shouni/netarmor](https://github.com/shouni/netarmor) - **ネットワークセキュリティ（`securenet`）**
+* [cenkalti/backoff/v7](https://github.com/cenkalti/backoff) - `retry` パッケージの指数バックオフ実装
 
 ### 📜 ライセンス (License)
 
