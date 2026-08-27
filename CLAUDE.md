@@ -14,6 +14,7 @@ go vet ./...                        # vet
 gofmt -l .                          # check formatting (CI fails if output is non-empty); use `gofmt -w .` to fix
 go test -race ./...                 # full test suite, matches CI
 go test -race ./httpkit/... -run TestName   # run a single test
+go test -race ./retry -run 'TestRun/成功'    # retry パッケージ単体
 golangci-lint run                   # lint (CI pins golangci-lint v2.12.2; config in .golangci.yml)
 govulncheck ./...                   # vulnerability scan (also runs in CI)
 ```
@@ -36,6 +37,8 @@ Everything lives in the `httpkit` package (no internal packages, no subdirectori
 
 ### Retry model
 
+`retry` decides *when* to wait and for how long; `httpkit` decides *what* is worth retrying (`IsHTTPRetryableError`) and *how* to replay a request. Keep that split — HTTP knowledge must not leak into `retry`.
+
 Retries happen by cloning the original `*http.Request` on each attempt (`executeWithClone`); a body-bearing request must set `req.GetBody` or retry fails with `ErrRequestBodyNotReplayable` on the second attempt. `PostRawBodyAndFetchBytes`/`PostJSONAndFetchBytes` set `GetBody` automatically; hand-built requests passed to `DoRequest` must set it themselves.
 
 **The retry predicate never sees the HTTP method, and that is deliberate — do not "fix" it.** `IsHTTPRetryableError(err error) bool` is handed only the error, so a POST is retried on 5xx and transient network errors exactly like a GET. Neither a 5xx nor a read timeout proves the server didn't process the request, so retrying a non-idempotent call can duplicate its side effect — a second Slack message, a second enqueued job. Making the predicate method-aware looks like the obvious correction and is wrong here, because **the HTTP method is not a usable proxy for idempotency in this family of repos** — it misclassifies in both directions:
@@ -51,6 +54,24 @@ Idempotency is a property of the *operation*, not of the method, which is why th
 
 One thing that *is* open: the predicate's final `return true` retries any error it could not classify. Narrowing it to a known set of transient network errors is defensible, but `net.Error` classification varies by platform and narrowing too far drops retries that currently work. Leave it until a real miss is observed.
 
+### `retry` — the backoff engine
+
+Adopted from `netarmor` in v1.10.0; the API is unchanged, only the import path moved. Three files: `retry.go` (`Run`/`RunValue`), `options.go` (`settings`, all `With*` options, defaults), `errors.go` (`*Error` + sentinels).
+
+Built on `cenkalti/backoff/v7`, whose API has details that matter here:
+
+- `backoff.WithMaxTries(n)` counts **total attempts**, not retries — hence `addSaturating(s.maxRetries, 1)`.
+- `MaxElapsedTime` defaults to 15 minutes upstream, so `WithMaxElapsedTime(s.maxElapsedTime)` is always passed (default 0 = disabled). Retries are bounded by count and context only.
+- `backoff.Retry` returns a `*backoff.RetryError` on **every** failure, carrying both `LastErr` (the last operation error) and `Cause` (why it stopped: `ErrPermanent` / `ErrExhausted` / `ErrMaxElapsedTime` / the context cause). `newError` is the single place that maps that onto `*Error` — don't reintroduce closure-tracked `lastErr`/`permanent` state, the upstream error is now the source of truth.
+
+`Run` delegates to `RunValue[struct{}]`, and `RunCtx` / `RunValueCtx` (the variants whose *operation* takes a `ctx`) delegate down to the same place — keep the retry logic in `RunValue` only. `RunValueCtx` normalizes a nil `ctx` before capturing it, so the operation never receives nil.
+
+Retry-After support: an operation error whose chain implements `DelayHinter` (`RetryAfter() time.Duration`, detected with `errors.As` — `errors.AsType` can't be used, `DelayHinter` doesn't embed `error`) overrides the next backoff interval. The closure returns `backoff.RetryAfter(d, err)`; backoff waits that duration, resets its schedule, and keeps `err` as the `RetryError.LastErr` should retrying later stop. The hook still needs the unwrapped original, since `WithNotify` is handed the `*backoff.RetryAfterError` itself — that's what `unwrapRetryAfter` is for. `ShouldRetryFunc` returning false takes precedence over any hint.
+
+`*Error` implements multi-error `Unwrap() []error`, so `errors.Is` matches the operation error, the context cause, *and* exactly one of `ErrPermanent` / `ErrExhausted`. The `Permanent` flag drives that classification; `newError` sets it from `RetryError.Cause`. `Error.Cause` holds *only* context causes — `ErrMaxElapsedTime` is deliberately folded into `ErrExhausted` (as it was under v5, where it surfaced as a discarded `context.DeadlineExceeded`) so the package's own sentinels stay the whole classification surface.
+
 ### Test layout
+
+`retry` は外部テストパッケージ (`retry_test`) のみで、ミリ秒間隔と `WithRandomizationFactor(0)` を使います（既定の 5s/30s を待たせない）。`example_test.go` は `// Output:` 付きなのでテストとして走ります — ジッタ 0 のまま決定的に保ってください。
 
 Tests mix black-box (`package httpkit_test`, e.g. `client_test.go`, `request_test.go`) and white-box (`package httpkit`, suffixed `_internal_test.go`, e.g. `client_internal_test.go`) styles — use the white-box files when a test needs access to unexported helpers (`makeRequest`, `classifyStatusError`, etc.).
