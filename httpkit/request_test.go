@@ -14,7 +14,7 @@ import (
 	"github.com/shouni/go-http-kit/httpkit"
 )
 
-func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
+func TestClient_Get_RetriesAndSecurity(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("SuccessAfterRetry", func(t *testing.T) {
@@ -29,23 +29,22 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 				},
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithMaxRetries(1),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 			httpkit.WithMaxInterval(1*time.Millisecond),
 		)
 
-		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
+		res, err := client.Get(ctx, "https://example.com")
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
-		if !bytes.Equal(body, []byte("recovered")) {
-			t.Errorf("body = %q, 期待 %q", body, "recovered")
+		if !bytes.Equal(res.Body, []byte("recovered")) {
+			t.Errorf("body = %q, 期待 %q", res.Body, "recovered")
 		}
-		if contentType != "application/xhtml+xml" {
-			t.Errorf("contentType = %q, 期待 %q", contentType, "application/xhtml+xml")
+		if res.ContentType() != "application/xhtml+xml" {
+			t.Errorf("contentType = %q, 期待 %q", res.ContentType(), "application/xhtml+xml")
 		}
 		if mock.CallCount != 2 {
 			t.Errorf("CallCount = %d, 期待 2", mock.CallCount)
@@ -62,21 +61,23 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 				},
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 		)
 
-		body, contentType, err := client.FetchBytes(ctx, "https://example.com")
+		res, err := client.Get(ctx, "https://example.com")
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
-		if !bytes.Equal(body, []byte("<html></html>")) {
-			t.Errorf("body = %q, 期待 %q", body, "<html></html>")
+		if !bytes.Equal(res.Body, []byte("<html></html>")) {
+			t.Errorf("body = %q, 期待 %q", res.Body, "<html></html>")
 		}
-		if contentType != "text/html; charset=utf-8" {
-			t.Errorf("contentType = %q, 期待 %q", contentType, "text/html; charset=utf-8")
+		if res.ContentType() != "text/html; charset=utf-8" {
+			t.Errorf("contentType = %q, 期待 %q", res.ContentType(), "text/html; charset=utf-8")
+		}
+		if res.Status != http.StatusOK {
+			t.Errorf("Status = %d, 期待 %d", res.Status, http.StatusOK)
 		}
 		if mock.CallCount != 1 {
 			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
@@ -85,9 +86,9 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 
 	t.Run("SSRF_Block_Default", func(t *testing.T) {
 		mock := &MockDoer{}
-		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock))
 
-		_, _, err := client.FetchBytes(ctx, "http://169.254.169.254") // Metadata endpoint
+		_, err := client.GetBytes(ctx, "http://169.254.169.254") // Metadata endpoint
 		if err == nil {
 			t.Fatal("SSRF 対象の URL でエラーが返っていません")
 		}
@@ -100,16 +101,16 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 	})
 
 	t.Run("SSRF_Block_HandBuiltRequest", func(t *testing.T) {
-		// 手組みの *http.Request を DoRequest に渡す経路でも SSRF 事前検証が効くこと
+		// 手組みの *http.Request を Send に渡す経路でも SSRF 事前検証が効くこと
 		mock := &MockDoer{}
-		client := httpkit.New(1*time.Second, httpkit.WithHTTPClient(mock))
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock))
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/latest/meta-data/", nil)
 		if err != nil {
 			t.Fatalf("リクエストの生成に失敗しました: %v", err)
 		}
 
-		_, err = client.DoRequest(req)
+		_, err = client.SendBytes(req)
 		if err == nil {
 			t.Fatal("SSRF 対象の URL でエラーが返っていません")
 		}
@@ -122,8 +123,8 @@ func TestClient_FetchBytes_RetriesAndSecurity(t *testing.T) {
 	})
 
 	t.Run("NilRequest", func(t *testing.T) {
-		client := httpkit.New(1 * time.Second)
-		_, err := client.DoRequest(nil)
+		client := httpkit.New()
+		_, err := client.SendBytes(nil)
 		if !errors.Is(err, httpkit.ErrNilRequest) {
 			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilRequest)
 		}
@@ -139,15 +140,14 @@ func TestClient_RetryOn429(t *testing.T) {
 			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
 		},
 	}
-	client := httpkit.New(1*time.Second,
-		httpkit.WithHTTPClient(mock),
+	client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 		httpkit.WithSkipNetworkValidation(true),
 		httpkit.WithMaxRetries(1),
 		httpkit.WithInitialInterval(1*time.Millisecond),
 		httpkit.WithMaxInterval(1*time.Millisecond),
 	)
 
-	body, _, err := client.FetchBytes(ctx, "https://example.com")
+	body, err := client.GetBytes(ctx, "https://example.com")
 	if err != nil {
 		t.Fatalf("予期しないエラー: %v", err)
 	}
@@ -175,8 +175,7 @@ func TestClient_RetryOn429HonorsRetryAfter(t *testing.T) {
 			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
 		},
 	}
-	client := httpkit.New(5*time.Second,
-		httpkit.WithHTTPClient(mock),
+	client := httpkit.New(httpkit.WithTimeout(5*time.Second), httpkit.WithDoer(mock),
 		httpkit.WithSkipNetworkValidation(true),
 		httpkit.WithMaxRetries(1),
 		httpkit.WithInitialInterval(1*time.Millisecond),
@@ -184,7 +183,7 @@ func TestClient_RetryOn429HonorsRetryAfter(t *testing.T) {
 	)
 
 	start := time.Now()
-	body, _, err := client.FetchBytes(ctx, "https://example.com")
+	body, err := client.GetBytes(ctx, "https://example.com")
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -215,12 +214,11 @@ func TestClient_HeaderCustomization(t *testing.T) {
 		var got http.Header
 		mock := &MockDoer{}
 		capture(mock, &got)
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 		)
 
-		_, _, err := client.FetchBytes(ctx, "https://example.com")
+		_, err := client.GetBytes(ctx, "https://example.com")
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
@@ -241,14 +239,13 @@ func TestClient_HeaderCustomization(t *testing.T) {
 		var got http.Header
 		mock := &MockDoer{}
 		capture(mock, &got)
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithUserAgent("my-service/1.0"),
 			httpkit.WithoutBrowserHeaders(),
 		)
 
-		_, _, err := client.FetchBytes(ctx, "https://example.com")
+		_, err := client.GetBytes(ctx, "https://example.com")
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
@@ -270,8 +267,7 @@ func TestClient_WithMaxResponseBodySize(t *testing.T) {
 	ctx := context.Background()
 
 	newClient := func(mock *MockDoer, limit int64) *httpkit.Client {
-		return httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		return httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithNoRetry(),
 			httpkit.WithMaxResponseBodySize(limit),
@@ -283,7 +279,7 @@ func TestClient_WithMaxResponseBodySize(t *testing.T) {
 			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("0123456789"))},
 		}}
 
-		_, _, err := newClient(mock, 5).FetchBytes(ctx, "https://example.com")
+		_, err := newClient(mock, 5).GetBytes(ctx, "https://example.com")
 		if !errors.Is(err, httpkit.ErrResponseBodyTooLarge) {
 			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrResponseBodyTooLarge)
 		}
@@ -294,7 +290,7 @@ func TestClient_WithMaxResponseBodySize(t *testing.T) {
 			{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("0123456789"))},
 		}}
 
-		body, _, err := newClient(mock, 10).FetchBytes(ctx, "https://example.com")
+		body, err := newClient(mock, 10).GetBytes(ctx, "https://example.com")
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
@@ -315,13 +311,12 @@ func TestClient_WithNoRetry(t *testing.T) {
 				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("recovered"))},
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithNoRetry(),
 		)
 
-		_, _, err := client.FetchBytes(ctx, "https://example.com")
+		_, err := client.GetBytes(ctx, "https://example.com")
 		if err == nil {
 			t.Fatal("リトライが無効な場合、最初の一時的エラーがそのまま返るはず")
 		}
@@ -341,13 +336,12 @@ func TestClient_WithNoRetry(t *testing.T) {
 				}, nil
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithNoRetry(),
 		)
 
-		_, err := client.PostRawBodyAndFetchBytes(ctx, "https://example.com/jobs", []byte("body"), "text/plain")
+		_, err := client.Post(ctx, "https://example.com/jobs", "text/plain", []byte("body"))
 		if err == nil {
 			t.Fatal("5xx はエラーとして返る想定です")
 		}
@@ -360,7 +354,7 @@ func TestClient_WithNoRetry(t *testing.T) {
 func TestClient_PublicRequestAPIs(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("PostRawBodyAndFetchBytes", func(t *testing.T) {
+	t.Run("Post", func(t *testing.T) {
 		body := []byte("raw-body")
 		var mock *MockDoer
 		mock = &MockDoer{
@@ -390,25 +384,24 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 				}, nil
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 		)
 
-		res, err := client.PostRawBodyAndFetchBytes(ctx, "https://example.com/post", body, "text/plain")
+		res, err := client.Post(ctx, "https://example.com/post", "text/plain", body)
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
-		if !bytes.Equal(res, []byte("ok")) {
-			t.Errorf("res = %q, 期待 %q", res, "ok")
+		if !bytes.Equal(res.Body, []byte("ok")) {
+			t.Errorf("res = %q, 期待 %q", res.Body, "ok")
 		}
 		if mock.CallCount != 1 {
 			t.Errorf("CallCount = %d, 期待 1", mock.CallCount)
 		}
 	})
 
-	t.Run("PostJSONAndFetchBytes_ReplaysBodyOnRetry", func(t *testing.T) {
+	t.Run("PostJSON_ReplaysBodyOnRetry", func(t *testing.T) {
 		type payload struct {
 			Name string `json:"name"`
 		}
@@ -440,20 +433,19 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 				}, nil
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithMaxRetries(1),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 			httpkit.WithMaxInterval(1*time.Millisecond),
 		)
 
-		res, err := client.PostJSONAndFetchBytes(ctx, "https://example.com/post", payload{Name: "kit"})
+		res, err := client.PostJSON(ctx, "https://example.com/post", payload{Name: "kit"})
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
-		if !bytes.Equal(res, []byte("created")) {
-			t.Errorf("res = %q, 期待 %q", res, "created")
+		if !bytes.Equal(res.Body, []byte("created")) {
+			t.Errorf("res = %q, 期待 %q", res.Body, "created")
 		}
 		wantBodies := []string{`{"name":"kit"}`, `{"name":"kit"}`}
 		if !slices.Equal(bodies, wantBodies) {
@@ -464,14 +456,13 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		}
 	})
 
-	t.Run("FetchAndDecodeJSON", func(t *testing.T) {
+	t.Run("GetJSON", func(t *testing.T) {
 		mock := &MockDoer{
 			Responses: []*http.Response{
 				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"name":"kit"}`))},
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 		)
@@ -479,7 +470,7 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 		var out struct {
 			Name string `json:"name"`
 		}
-		err := client.FetchAndDecodeJSON(ctx, "https://example.com/data", &out)
+		err := client.GetJSON(ctx, "https://example.com/data", &out)
 		if err != nil {
 			t.Fatalf("予期しないエラー: %v", err)
 		}
@@ -497,8 +488,7 @@ func TestClient_PublicRequestAPIs(t *testing.T) {
 				{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("stream-data"))},
 			},
 		}
-		client := httpkit.New(1*time.Second,
-			httpkit.WithHTTPClient(mock),
+		client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(mock),
 			httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithInitialInterval(1*time.Millisecond),
 		)

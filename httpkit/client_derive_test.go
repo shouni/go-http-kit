@@ -16,7 +16,7 @@ import (
 func TestWithoutRetryDisablesRetryOnDerivedClientOnly(t *testing.T) {
 	t.Parallel()
 
-	client := httpkit.New(1 * time.Second)
+	client := httpkit.New()
 	derived := client.WithoutRetry()
 
 	if client.DisableRetry {
@@ -32,8 +32,7 @@ func TestWithoutRetryDisablesRetryOnDerivedClientOnly(t *testing.T) {
 func TestWithoutRetryKeepsOtherSettings(t *testing.T) {
 	t.Parallel()
 
-	client := httpkit.New(1*time.Second,
-		httpkit.WithSkipNetworkValidation(true),
+	client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithSkipNetworkValidation(true),
 		httpkit.WithMaxRetries(7),
 		httpkit.WithInitialInterval(3*time.Millisecond),
 	)
@@ -62,13 +61,12 @@ func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 		}, nil
 	})
 
-	client := httpkit.New(1*time.Second,
-		httpkit.WithHTTPClient(stub),
+	client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(stub),
 		httpkit.WithSkipNetworkValidation(true),
 	)
 	derived := client.WithoutRetry()
 
-	_, err := derived.PostJSONAndFetchBytes(context.Background(), "https://example.com", map[string]string{"a": "b"})
+	_, err := derived.PostJSON(context.Background(), "https://example.com", map[string]string{"a": "b"})
 	if err != nil {
 		t.Fatalf("予期しないエラー: %v", err)
 	}
@@ -93,13 +91,12 @@ func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := httpkit.New(2*time.Second,
-		httpkit.WithSkipNetworkValidation(true),
+	client := httpkit.New(httpkit.WithTimeout(2*time.Second), httpkit.WithSkipNetworkValidation(true),
 		httpkit.WithInitialInterval(1*time.Millisecond),
 		httpkit.WithMaxInterval(2*time.Millisecond),
 	)
 
-	_, err := client.WithoutRetry().PostJSONAndFetchBytes(context.Background(), server.URL, map[string]string{"text": "hello"})
+	_, err := client.WithoutRetry().PostJSON(context.Background(), server.URL, map[string]string{"text": "hello"})
 	if err == nil {
 		t.Fatal("5xx はエラーとして返る想定です")
 	}
@@ -121,15 +118,14 @@ func TestRetainedClientStillRetries(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := httpkit.New(2*time.Second,
-		httpkit.WithSkipNetworkValidation(true),
+	client := httpkit.New(httpkit.WithTimeout(2*time.Second), httpkit.WithSkipNetworkValidation(true),
 		httpkit.WithMaxRetries(2),
 		httpkit.WithInitialInterval(1*time.Millisecond),
 		httpkit.WithMaxInterval(2*time.Millisecond),
 	)
 	_ = client.WithoutRetry() // 派生させても元には影響しないこと
 
-	_, err := client.PostJSONAndFetchBytes(context.Background(), server.URL, map[string]string{"text": "hello"})
+	_, err := client.PostJSON(context.Background(), server.URL, map[string]string{"text": "hello"})
 	if err == nil {
 		t.Fatal("5xx はエラーとして返る想定です")
 	}

@@ -8,14 +8,9 @@ import (
 	"net/http"
 )
 
-// ----------------------------------------------------------------------
-// レスポンス処理とリトライ判定
-// ----------------------------------------------------------------------
-
-// HandleResponse はHTTPレスポンスを処理し、成功した場合はボディをバイト配列として返します。
-// ボディの読み込みは MaxResponseBodySize までに制限されます。
-// WithMaxResponseBodySize によるクライアント単位の上限は、Client のメソッド
-// (DoRequest / FetchBytes 等) 経由の処理でのみ反映されます。
+// HandleResponse はHTTPレスポンスを処理し、成功した場合はボディを返します。
+// 読み込みは MaxResponseBodySize までです。WithMaxResponseBodySize によるクライアント
+// 単位の上限が効くのは、Client のメソッド経由の処理だけです。
 func HandleResponse(resp *http.Response) ([]byte, error) {
 	return handleResponseWithLimit(resp, MaxResponseBodySize)
 }
@@ -53,8 +48,8 @@ func handleResponseWithLimit(resp *http.Response, maxBodySize int64) ([]byte, er
 	return bodyBytes, nil
 }
 
-// IsHTTPRetryableError はエラーがHTTPリトライ対象かどうかを判定します。
-// この関数は retry.ShouldRetryFunc 型のシグネチャを満たします。
+// IsHTTPRetryableError はエラーがリトライ対象かを判定します。
+// シグネチャは retry.ShouldRetryFunc を満たします。
 func (c *Client) IsHTTPRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -89,22 +84,4 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 
 	// 明示的に非リトライと判定したもの以外は、一時的な通信エラー（タイムアウト等）の可能性を考慮してリトライする。
 	return true
-}
-
-// HandleLimitedResponse は、指定されたレスポンスボディを、最大サイズに制限して読み込みます。
-// この関数は、主に内部的なレスポンス処理やテストのために使用されます。
-func HandleLimitedResponse(resp *http.Response, limit int64) ([]byte, error) {
-	if resp == nil {
-		return nil, ErrNilResponse
-	}
-	if resp.Body == nil {
-		return nil, ErrNilResponseBody
-	}
-	defer resp.Body.Close()
-	limitedReader := io.LimitReader(resp.Body, limit)
-	bodyBytes, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrResponseBodyRead, err)
-	}
-	return bodyBytes, nil
 }

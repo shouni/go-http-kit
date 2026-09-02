@@ -13,10 +13,6 @@ import (
 	"github.com/shouni/go-http-kit/retry"
 )
 
-// ----------------------------------------------------------------------
-// エラー処理
-// ----------------------------------------------------------------------
-
 var (
 	// ErrNilRequest は nil の *http.Request が渡されたことを示します。
 	ErrNilRequest = errors.New("nil HTTP request")

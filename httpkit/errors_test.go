@@ -19,7 +19,7 @@ func (timeoutNetError) Timeout() bool   { return true }
 func (timeoutNetError) Temporary() bool { return false }
 
 func TestIsHTTPRetryableError(t *testing.T) {
-	client := httpkit.New(0)
+	client := httpkit.New()
 
 	t.Run("ContextErrors", func(t *testing.T) {
 		for _, err := range []error{
