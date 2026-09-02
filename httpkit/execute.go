@@ -7,10 +7,33 @@ import (
 	"net/http"
 
 	"github.com/shouni/go-http-kit/retry"
+	"github.com/shouni/netarmor/securenet"
 )
 
-// makeRequest は、リクエストの構築と共通ヘッダーの付与を行います。
-// SSRF 検証はすべてのリクエスト経路が通る executeWithClone 側で一元的に行われます。
+// execute は、リトライ付きでリクエストを実行し、ステータス・ヘッダー・ボディを
+// 読み切って返します。バッファリング系メソッド (Send / Get / Post) 共通の実行部です。
+func (c *Client) execute(req *http.Request) (*Result, error) {
+	res := &Result{}
+	err := c.executeWithClone(req, func(r *http.Request) error {
+		resp, doErr := c.Do(r)
+		if doErr != nil {
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
+		}
+		if resp != nil {
+			res.Status = resp.StatusCode
+			res.Header = resp.Header
+		}
+		var handleErr error
+		res.Body, handleErr = handleResponseWithLimit(resp, c.maxBodySize())
+		return handleErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// makeRequest はリクエストを構築し、共通ヘッダーを付けます。
 func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 	if err != nil {
@@ -22,9 +45,8 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 	return req, nil
 }
 
-// addCommonHeaders は、ヘルパーが構築するリクエストに共通のHTTPヘッダーを設定します。
-// User-Agent は Client.UserAgent（WithUserAgent で変更可能）を使い、
-// sec-ch-ua 系のブラウザ由来ヘッダーは DisableBrowserHeaders で抑制できます。
+// addCommonHeaders は、ヘルパーが構築するリクエストに共通ヘッダーを設定します。
+// User-Agent は Client.UserAgent、sec-ch-ua 系は DisableBrowserHeaders で制御します。
 func (c *Client) addCommonHeaders(req *http.Request) {
 	if c.UserAgent != "" {
 		req.Header.Set("User-Agent", c.UserAgent)
@@ -39,8 +61,7 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 	req.Header.Set("sec-ch-ua-platform", SecChUAPlatform)
 }
 
-// doWithRetry はリトライ可能なHTTP操作を実行します。
-// DisableRetry が設定されている場合は、リトライを行わず一度だけ実行します。
+// doWithRetry は操作をリトライ付きで実行します。DisableRetry なら一度だけ実行します。
 func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
 	if c.DisableRetry {
 		return op()
@@ -53,9 +74,10 @@ func (c *Client) doWithRetry(ctx context.Context, operationName string, op func(
 	return retry.Run(ctx, op, opts...)
 }
 
-// executeWithClone はリクエストをクローンしてリトライを実行する共通ロジックです。
-// ヘルパー経由・手組みの *http.Request 経由を問わず、すべてのリクエスト経路が
-// ここを通るため、SSRF 事前検証もここで一元的に行います。
+// executeWithClone はリクエストをクローンしてリトライを実行します。
+//
+// ヘルパー経由か手組みの *http.Request 経由かを問わず、すべてのリクエストがここを
+// 通ります。SSRF 事前検証を一元的に置けるのはそのためです。
 func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) error) error {
 	if req == nil {
 		return ErrNilRequest
@@ -65,10 +87,9 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 		urlStr = req.URL.String()
 	}
 
-	// SSRF 検証 (SkipNetworkValidation が false の場合のみ)。リトライ前に一度だけ行う。
-	// 名前解決はリクエストの ctx に従うため、呼び出し側のタイムアウトが効く。
+	// リトライ前に一度だけ検証する。名前解決はリクエストの ctx に従う。
 	if !c.SkipNetworkValidation {
-		if err := c.ValidateURL(req.Context(), urlStr); err != nil {
+		if err := securenet.ValidateURL(req.Context(), urlStr); err != nil {
 			return fmt.Errorf("SSRF安全検証エラー: %w", err)
 		}
 	}

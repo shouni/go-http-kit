@@ -7,13 +7,13 @@ import (
 	"net/http"
 )
 
-// DoStreamRequest はレスポンスボディ (io.ReadCloser) を返します。
-// 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
+// SendStream は、組み立て済みのリクエストを実行し、レスポンスボディを
+// ストリーム (io.ReadCloser) として返します。読み終えたら Close してください。
 //
-// ストリーム用クライアントで実行されるため、クライアント全体のタイムアウトは
-// 適用されず、ボディ読み取りの寿命はリクエストの ctx に委ねられます
-// （WithHTTPClient で注入した Doer を使う場合はその設定に従います）。
-func (c *Client) DoStreamRequest(req *http.Request) (io.ReadCloser, error) {
+// ストリーム用クライアントで実行するため、クライアント全体のタイムアウトは掛からず、
+// ボディ読み取りの寿命はリクエストの ctx に委ねられます（WithDoer で注入した Doer を
+// 使う場合はその設定に従います）。
+func (c *Client) SendStream(req *http.Request) (io.ReadCloser, error) {
 	var body io.ReadCloser
 
 	err := c.executeWithClone(req, func(r *http.Request) error {
@@ -48,8 +48,9 @@ func (c *Client) doStream(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// FetchStream は GET リクエストを送信し、レスポンスボディをストリームとして処理します。
-func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader) error) error {
+// ReadStream は GET リクエストを送信し、レスポンスボディを fn に読ませます。
+// ストリームの Close はこのメソッドが行うため、fn は読むことだけに集中できます。
+func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) error) error {
 	rc, err := c.GetStream(ctx, url)
 	if err != nil {
 		return err
@@ -62,19 +63,19 @@ func (c *Client) FetchStream(ctx context.Context, url string, fn func(io.Reader)
 	return nil
 }
 
-// GetStream は GET リクエストを送信し、レスポンスボディをストリームとして返します。
+// GetStream は GET し、レスポンスボディをストリームとして返します。読み終えたら
+// Close してください。Close を書く場所がないなら ReadStream を使います。
 func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.DoStreamRequest(req)
+	return c.SendStream(req)
 }
 
-// checkResponseStatus は HTTP レスポンスのステータスコードをチェックします。
-// エラーレスポンス (2xx 以外) の場合、エラー詳細を取得するために resp.Body を
-// 最大 MaxErrorBodySize バイト読み込みます。
+// checkResponseStatus はステータスコードを検査します。2xx 以外なら、エラー詳細のため
+// resp.Body を最大 MaxErrorBodySize バイトだけ読みます。
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return ErrNilResponse

@@ -7,19 +7,28 @@ import (
 // ClientOption はClientの設定を行うための関数型です。
 type ClientOption func(*Client)
 
-// WithHTTPClient はカスタムのDoerを設定します。
-// テスト時にモックを注入したり、既存の http.Client を再利用したい場合に使用します。
-// 注入した Doer はストリーム系メソッドにもそのまま使われるため、http.Client を
-// 渡す場合はその Timeout がストリームのボディ読み取りにも及ぶ点に注意してください。
-func WithHTTPClient(client Doer) ClientOption {
+// WithTimeout は、既定のクライアントに与えるタイムアウトを設定します。
+// 省略時と 0 以下の値では DefaultHTTPTimeout を使います。
+//
+// ストリーム系ではヘッダー受信までの制限として使われ、ボディ読み取りには掛かりません。
+// 呼び出しごとの締切は ctx で与えてください。
+func WithTimeout(d time.Duration) ClientOption {
+	return func(c *Client) {
+		c.Timeout = d
+	}
+}
+
+// WithDoer はカスタムの Doer を設定します。モックの注入や既存の http.Client の
+// 再利用に使います。注入した Doer はストリーム系にもそのまま使われるため、
+// その Timeout はストリームのボディ読み取りにも及びます。
+func WithDoer(client Doer) ClientOption {
 	return func(c *Client) {
 		c.httpClient = client
 	}
 }
 
-// WithMaxRetries は最大リトライ回数を設定します。0 を指定するとリトライを
-// 完全に無効化します（WithNoRetry と同じ効果です）。1 以上を指定するとリトライは
-// 有効になります（先行するオプションで無効化されていても再度有効化されます）。
+// WithMaxRetries は最大リトライ回数を設定します。0 は WithNoRetry と同じで、
+// 1 以上は先行オプションで無効化されていてもリトライを有効に戻します。
 func WithMaxRetries(maxRetries uint) ClientOption {
 	return func(c *Client) {
 		if maxRetries == 0 {
@@ -31,9 +40,8 @@ func WithMaxRetries(maxRetries uint) ClientOption {
 	}
 }
 
-// WithNoRetry はリトライを完全に無効化します。
-// ジョブ投入などの非冪等な操作では、一時的なエラーに対するリトライが
-// 意図しない二重実行を招く可能性があるため、このオプションを使用してください。
+// WithNoRetry はリトライを完全に無効化します。ジョブ投入のような非冪等な操作で、
+// リトライが二重実行になるのを避けるために使います。
 func WithNoRetry() ClientOption {
 	return func(c *Client) {
 		c.DisableRetry = true
@@ -54,9 +62,8 @@ func WithMaxInterval(d time.Duration) ClientOption {
 	}
 }
 
-// WithMaxResponseBodySize は、バッファリング系メソッド (DoRequest / FetchBytes 等) が
-// 読み込むレスポンスボディの最大サイズをクライアント単位で設定します。
-// 0 以下の値は無視され、既定値の MaxResponseBodySize (25MB) が使われます。
+// WithMaxResponseBodySize は、バッファリング系が読み込むレスポンスボディの上限を
+// クライアント単位で設定します。0 以下は無視し、既定の MaxResponseBodySize を使います。
 func WithMaxResponseBodySize(n int64) ClientOption {
 	return func(c *Client) {
 		if n > 0 {
@@ -66,31 +73,27 @@ func WithMaxResponseBodySize(n int64) ClientOption {
 }
 
 // WithUserAgent は、共通ヘッダーとして送信する User-Agent を設定します。
-// 既定はブラウザ互換の UserAgent 定数です。API クライアントとして名乗る場合は
-// "my-service/1.0" のような値を設定してください。空文字を指定すると User-Agent
-// ヘッダーを設定しなくなります（Go 標準の既定値が送られます）。
+// 既定はブラウザ互換の UserAgent 定数で、"my-service/1.0" のように名乗り直せます。
+// 空文字を渡すとヘッダー自体を設定しません（Go 標準の既定値が送られます）。
 func WithUserAgent(ua string) ClientOption {
 	return func(c *Client) {
 		c.UserAgent = ua
 	}
 }
 
-// WithoutBrowserHeaders は、sec-ch-ua 系のブラウザ由来ヘッダー
-// (sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform) の送信を無効化します。
-// JSON API など、ブラウザを装う必要のない相手に使用してください。
-// User-Agent と Accept-Language は引き続き送信されます（WithUserAgent で変更可能）。
+// WithoutBrowserHeaders は sec-ch-ua 系ヘッダーの送信を無効化します。ブラウザを装う
+// 必要のない JSON API 向けです。User-Agent と Accept-Language は引き続き送ります。
 func WithoutBrowserHeaders() ClientOption {
 	return func(c *Client) {
 		c.DisableBrowserHeaders = true
 	}
 }
 
-// WithSkipNetworkValidation は SSRF 対策や IP 制限などのネットワーク検証をスキップするかどうかを設定します。
-// true に設定すると、リクエストURLの事前検証がスキップされます。
-// さらに、WithHTTPClient オプションでカスタムクライアントが指定されていない場合に限り、
-// DNS Rebinding対策などを含む安全なHTTPクライアント (securenet) の代わりに、
-// 標準の `http.Client` が使用されるようになります。
-// 内部ネットワーク (localhost, 127.0.0.1, ::1 等) へのリクエストが必要な場合に true を設定します。
+// WithSkipNetworkValidation は URL の事前検証をスキップします。localhost や private IP
+// など、内部ネットワークが相手のときに使います。
+//
+// WithDoer を併用していない場合は、既定の securenet クライアント（DNS Rebinding 対策
+// つき）ではなく標準の http.Client が構築される点にも効きます。
 func WithSkipNetworkValidation(skip bool) ClientOption {
 	return func(c *Client) {
 		c.SkipNetworkValidation = skip

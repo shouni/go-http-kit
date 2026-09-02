@@ -113,32 +113,3 @@ func TestHandleResponse_Logic(t *testing.T) {
 		}
 	})
 }
-
-func TestHandleLimitedResponse(t *testing.T) {
-	t.Run("NilResponse", func(t *testing.T) {
-		_, err := httpkit.HandleLimitedResponse(nil, 5)
-		if !errors.Is(err, httpkit.ErrNilResponse) {
-			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilResponse)
-		}
-	})
-
-	t.Run("NilBody", func(t *testing.T) {
-		resp := &http.Response{StatusCode: http.StatusOK}
-		_, err := httpkit.HandleLimitedResponse(resp, 5)
-		if !errors.Is(err, httpkit.ErrNilResponseBody) {
-			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilResponseBody)
-		}
-	})
-
-	t.Run("Truncated_Success", func(t *testing.T) {
-		body := "1234567890"
-		resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(body))}
-		res, err := httpkit.HandleLimitedResponse(resp, 5)
-		if err != nil {
-			t.Fatalf("予期しないエラー: %v", err)
-		}
-		if !bytes.Equal(res, []byte("12345")) {
-			t.Errorf("res = %q, 期待 %q", res, "12345")
-		}
-	})
-}

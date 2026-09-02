@@ -9,46 +9,55 @@ import (
 	"net/http"
 )
 
-// DoRequest は、組み立て済みのリクエストをリトライ付きで実行し、ボディを返します。
+// Send は、組み立て済みのリクエストをリトライ付きで実行します。
 // 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
-func (c *Client) DoRequest(req *http.Request) ([]byte, error) {
-	body, _, err := c.doBuffered(req)
-	return body, err
+//
+// リトライさせるなら、ボディ付きのリクエストには req.GetBody を設定してください
+// （Post / PostJSON は自動で設定します）。
+func (c *Client) Send(req *http.Request) (*Result, error) {
+	return c.execute(req)
 }
 
-// doBuffered は、リトライ付きでリクエストを実行し、ボディ全体と最後に受信した
-// レスポンスヘッダーを返します。DoRequest / FetchBytes 共通の実行部です。
-func (c *Client) doBuffered(req *http.Request) ([]byte, http.Header, error) {
-	var body []byte
-	var header http.Header
-	err := c.executeWithClone(req, func(r *http.Request) error {
-		resp, doErr := c.Do(r)
-		if doErr != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
-		}
-		if resp != nil {
-			header = resp.Header
-		}
-		var handleErr error
-		body, handleErr = handleResponseWithLimit(resp, c.maxBodySize())
-		return handleErr
-	})
-	return body, header, err
+// SendBytes は Send のうちボディだけが必要な場合の糖衣です。
+func (c *Client) SendBytes(req *http.Request) ([]byte, error) {
+	res, err := c.Send(req)
+	if err != nil {
+		return nil, err
+	}
+	return res.Body, nil
 }
 
-// FetchBytes は GET リクエストを送信し、ボディと Content-Type ヘッダーを取得します。
-func (c *Client) FetchBytes(ctx context.Context, url string) ([]byte, string, error) {
+// Get は GET リクエストを送信します。
+func (c *Client) Get(ctx context.Context, url string) (*Result, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-
-	body, header, err := c.doBuffered(req)
-	return body, header.Get("Content-Type"), err
+	return c.execute(req)
 }
 
-// PostRawBodyAndFetchBytes はバイト配列を POST します。
-func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body []byte, contentType string) ([]byte, error) {
+// GetBytes は Get のうちボディだけが必要な場合の糖衣です。
+func (c *Client) GetBytes(ctx context.Context, url string) ([]byte, error) {
+	res, err := c.Get(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return res.Body, nil
+}
+
+// GetJSON は GET して、ボディを JSON としてデコードします。
+func (c *Client) GetJSON(ctx context.Context, url string, v any) error {
+	res, err := c.Get(ctx, url)
+	if err != nil {
+		return err
+	}
+	return res.DecodeJSON(v)
+}
+
+// Post はバイト配列を POST します。引数の順序は net/http の Client.Post に揃えています。
+// リトライで同じボディを送り直せるよう req.GetBody を設定するので、非冪等な送信では
+// WithoutRetry / WithNoRetry の併用を検討してください。
+func (c *Client) Post(ctx context.Context, url, contentType string, body []byte) (*Result, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -64,26 +73,14 @@ func (c *Client) PostRawBodyAndFetchBytes(ctx context.Context, url string, body 
 		}
 	}
 	req.Header.Set("Content-Type", contentType)
-	return c.DoRequest(req)
+	return c.execute(req)
 }
 
-// PostJSONAndFetchBytes はデータを JSON として POST します。
-func (c *Client) PostJSONAndFetchBytes(ctx context.Context, url string, data any) ([]byte, error) {
+// PostJSON はデータを JSON として POST します。
+func (c *Client) PostJSON(ctx context.Context, url string, data any) (*Result, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
 	}
-	return c.PostRawBodyAndFetchBytes(ctx, url, requestBody, "application/json")
-}
-
-// FetchAndDecodeJSON は GET して JSON をデコードします。
-func (c *Client) FetchAndDecodeJSON(ctx context.Context, url string, v any) error {
-	bodyBytes, _, err := c.FetchBytes(ctx, url)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(bodyBytes, v); err != nil {
-		return fmt.Errorf("JSONデコードに失敗しました: %w", err)
-	}
-	return nil
+	return c.Post(ctx, url, "application/json", requestBody)
 }

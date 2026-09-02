@@ -19,8 +19,7 @@ func (f doerFunc) Do(req *http.Request) (*http.Response, error) {
 
 // newTestClient はテストが実際のバックオフ待ちを踏まない設定で Client を作成します。
 func newTestClient(server *httptest.Server) *Client {
-	return New(1*time.Second,
-		WithHTTPClient(server.Client()),
+	return New(WithTimeout(1*time.Second), WithDoer(server.Client()),
 		WithSkipNetworkValidation(true),
 		WithMaxRetries(1),
 		WithInitialInterval(1*time.Millisecond),
@@ -29,8 +28,7 @@ func newTestClient(server *httptest.Server) *Client {
 }
 
 func newTestClientWithDoer(doer Doer) *Client {
-	return New(1*time.Second,
-		WithHTTPClient(doer),
+	return New(WithTimeout(1*time.Second), WithDoer(doer),
 		WithSkipNetworkValidation(true),
 		WithMaxRetries(1),
 		WithInitialInterval(1*time.Millisecond),
@@ -38,7 +36,7 @@ func newTestClientWithDoer(doer Doer) *Client {
 	)
 }
 
-func TestFetchStream(t *testing.T) {
+func TestReadStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("stream-data"))
@@ -48,7 +46,7 @@ func TestFetchStream(t *testing.T) {
 	c := newTestClient(server)
 
 	t.Run("正常系: ストリームが正しく処理される", func(t *testing.T) {
-		err := c.FetchStream(context.Background(), server.URL, func(rc io.Reader) error {
+		err := c.ReadStream(context.Background(), server.URL, func(rc io.Reader) error {
 			data, err := io.ReadAll(rc)
 			if err != nil {
 				t.Fatalf("ストリームの読み込みに失敗しました: %v", err)
@@ -72,7 +70,7 @@ func TestFetchStream(t *testing.T) {
 		defer server500.Close()
 
 		c500 := newTestClient(server500)
-		err := c500.FetchStream(context.Background(), server500.URL, func(_ io.Reader) error {
+		err := c500.ReadStream(context.Background(), server500.URL, func(_ io.Reader) error {
 			return nil
 		})
 		if err == nil {
@@ -102,7 +100,7 @@ func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
 	defer server.Close()
 
 	// 全体タイムアウト 150ms のクライアント。ボディの読み取りには 300ms 以上かかる。
-	c := New(150*time.Millisecond, WithSkipNetworkValidation(true), WithNoRetry())
+	c := New(WithTimeout(150*time.Millisecond), WithSkipNetworkValidation(true), WithNoRetry())
 
 	rc, err := c.GetStream(context.Background(), server.URL)
 	if err != nil {
@@ -156,7 +154,7 @@ func TestCheckResponseStatus(t *testing.T) {
 	}
 }
 
-func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
+func TestSendStream_NilResponseSafety(t *testing.T) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", nil)
 	if err != nil {
 		t.Fatalf("リクエストの生成に失敗しました: %v", err)
@@ -167,7 +165,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 			return nil, nil
 		}))
 
-		rc, err := c.DoStreamRequest(req)
+		rc, err := c.SendStream(req)
 		if rc != nil {
 			t.Errorf("rc = %v, 期待 nil", rc)
 		}
@@ -181,7 +179,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK}, nil
 		}))
 
-		rc, err := c.DoStreamRequest(req)
+		rc, err := c.SendStream(req)
 		if rc != nil {
 			t.Errorf("rc = %v, 期待 nil", rc)
 		}
@@ -196,7 +194,7 @@ func TestDoStreamRequest_NilResponseSafety(t *testing.T) {
 			return nil, wantErr
 		}))
 
-		rc, err := c.DoStreamRequest(req)
+		rc, err := c.SendStream(req)
 		if rc != nil {
 			t.Errorf("rc = %v, 期待 nil", rc)
 		}

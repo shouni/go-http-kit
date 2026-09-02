@@ -3,7 +3,6 @@
 package httpkit
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -11,16 +10,11 @@ import (
 	"github.com/shouni/netarmor/securenet"
 )
 
-// ----------------------------------------------------------------------
-// クライアント定義と設定
-// ----------------------------------------------------------------------
-
 // RetryConfig はリトライ動作の設定です。
 //
-// MaxRetries は初回実行を除いたリトライ回数です。0 はリトライを行わないことを
-// 意味しますが、通常は WithNoRetry / WithMaxRetries(0) 経由で DisableRetry が
-// 設定されるため、この値が 0 のまま使われることはありません。
-// 各インターバルが 0 の場合は retry パッケージの既定値が使用されます。
+// MaxRetries は初回実行を除いたリトライ回数です。リトライを切る経路は
+// WithNoRetry / WithMaxRetries(0) が立てる DisableRetry なので、この値が 0 のまま
+// 使われることはありません。各インターバルが 0 なら retry パッケージの既定値です。
 type RetryConfig struct {
 	MaxRetries      uint
 	InitialInterval time.Duration
@@ -59,6 +53,13 @@ type Client struct {
 	SkipNetworkValidation bool
 	DisableRetry          bool
 
+	// Timeout は、既定のクライアントに与えるタイムアウトです。0 以下なら
+	// DefaultHTTPTimeout を使います。WithTimeout で設定します。
+	//
+	// ストリーム系のボディ読み取りには掛かりません（newStreamClient を参照）。
+	// 呼び出しごとの締切は ctx で与えてください。ここはその保険です。
+	Timeout time.Duration
+
 	// MaxBodySize は、バッファリング系メソッドが読み込むレスポンスボディの上限です。
 	// 0 以下の場合は MaxResponseBodySize が使われます。WithMaxResponseBodySize で設定します。
 	MaxBodySize int64
@@ -71,11 +72,7 @@ type Client struct {
 
 // New は新しいClientを初期化します。
 // デフォルトで SSRF / DNS Rebinding 対策が有効な SafeHTTPClient が構築されます。
-func New(timeout time.Duration, options ...ClientOption) *Client {
-	if timeout <= 0 {
-		timeout = DefaultHTTPTimeout
-	}
-
+func New(options ...ClientOption) *Client {
 	client := &Client{
 		RetryConfig:           DefaultRetryConfig(),
 		SkipNetworkValidation: false,
@@ -86,15 +83,17 @@ func New(timeout time.Duration, options ...ClientOption) *Client {
 		opt(client)
 	}
 
-	client.ensureHTTPClient(timeout)
+	client.ensureHTTPClient()
 
 	return client
 }
 
 // ensureHTTPClient は、httpClient が未設定の場合に、設定に基づいてデフォルトのクライアントを構築します。
 // あわせてストリーム用の streamClient も確定します（分離の理由は newStreamClient を参照）。
-func (c *Client) ensureHTTPClient(timeout time.Duration) {
+func (c *Client) ensureHTTPClient() {
 	if c.httpClient == nil {
+		timeout := c.timeout()
+
 		var base *http.Client
 		if c.SkipNetworkValidation {
 			// 内部通信などを許可する標準のクライアント。
@@ -110,7 +109,7 @@ func (c *Client) ensureHTTPClient(timeout time.Duration) {
 	}
 
 	if c.streamClient == nil {
-		// WithHTTPClient で注入された Doer はストリームにもそのまま使う。
+		// WithDoer で注入された Doer はストリームにもそのまま使う。
 		// 注入したクライアントの Timeout がボディ読み取りまで及ぶ点は呼び出し側の管理となる。
 		c.streamClient = c.httpClient
 	}
@@ -136,14 +135,18 @@ func newStreamClient(base *http.Client, timeout time.Duration) *http.Client {
 	}
 }
 
-// ----------------------------------------------------------------------
-// ユーティリティ・公開メソッド
-// ----------------------------------------------------------------------
-
 // Do は Doer インターフェースを実装します。リトライロジックと SSRF 事前検証は
 // 適用されません（デフォルト構成では securenet が接続直前の IP 検証を行います）。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
+}
+
+// timeout は、既定のクライアントに与えるタイムアウトを返します。
+func (c *Client) timeout() time.Duration {
+	if c.Timeout > 0 {
+		return c.Timeout
+	}
+	return DefaultHTTPTimeout
 }
 
 // maxBodySize は、バッファリング系メソッドで使うレスポンスボディの上限を返します。
@@ -155,21 +158,13 @@ func (c *Client) maxBodySize() int64 {
 }
 
 // WithoutRetry はリトライを無効にした派生クライアントを返します。
-// 元のクライアントは変更しません。
+// 元のクライアントは変更せず、レシーバが nil なら nil を返します。
 //
-// 内部の Doer（通常用・ストリーム用とも）をそのまま共有するため、New をもう一度
-// 呼ぶ場合と違い、タイムアウトや SSRF 対策の設定を書き写す必要がなく、
-// TCP コネクションプールも二重に持ちません。
+// 内部の Doer を共有するため、New をもう一度呼ぶのと違って設定を書き写す必要がなく、
+// TCP コネクションプールも二重に持ちません。Webhook やジョブ投入のように成功のたびに
+// 副作用が生まれる送信で、リトライだけを切る用途を想定しています。
 //
-// 冪等な取得と非冪等な送信が同じ設定を共有する場面で使います。
-// 典型的には Webhook や外部へのジョブ投入で、これらは成功するたびに
-// 副作用が生まれるため、レスポンスを取りこぼした際のリトライが
-// 二重実行になります。
-//
-//	client := httpkit.New(timeout)              // 取得はリトライあり
-//	poster := client.WithoutRetry()             // 送信はリトライなし
-//
-// レシーバが nil の場合は nil を返します。
+//	poster := client.WithoutRetry()
 func (c *Client) WithoutRetry() *Client {
 	if c == nil {
 		return nil
@@ -179,18 +174,4 @@ func (c *Client) WithoutRetry() *Client {
 	derived.DisableRetry = true
 
 	return &derived
-}
-
-// ValidateURL は URL が SSRF の観点で安全か検証します。安全な場合は nil を返します。
-//
-// 失敗理由は errors.Is で分類できます（securenet.ErrRestrictedIP,
-// securenet.ErrDisallowedScheme, securenet.ErrInvalidURL 等）。
-// 名前解決のタイムアウトは ctx で制御してください。
-func (c *Client) ValidateURL(ctx context.Context, urlStr string) error {
-	return securenet.ValidateURL(ctx, urlStr)
-}
-
-// IsSecureServiceURL は、サービスURLが安全なスキームか確認します。
-func (c *Client) IsSecureServiceURL(serviceURL string) bool {
-	return securenet.IsSecureServiceURL(serviceURL)
 }

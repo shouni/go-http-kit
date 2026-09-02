@@ -8,7 +8,7 @@ import (
 
 func TestNew_ImplementationSwitch(t *testing.T) {
 	t.Run("Default should use SafeHTTPClient (with custom DialContext)", func(t *testing.T) {
-		client := New(1 * time.Second)
+		client := New()
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
 			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
@@ -29,7 +29,7 @@ func TestNew_ImplementationSwitch(t *testing.T) {
 	})
 
 	t.Run("SkipNetworkValidation should use standard http.Client with a cloned Transport", func(t *testing.T) {
-		client := New(1*time.Second, WithSkipNetworkValidation(true))
+		client := New(WithTimeout(1*time.Second), WithSkipNetworkValidation(true))
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
 			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
@@ -48,7 +48,7 @@ func TestNew_ImplementationSwitch(t *testing.T) {
 
 func TestNew_StreamClientSeparation(t *testing.T) {
 	t.Run("stream client shares Transport but drops overall timeout", func(t *testing.T) {
-		client := New(1 * time.Second)
+		client := New(WithTimeout(1 * time.Second))
 
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
@@ -80,7 +80,7 @@ func TestNew_StreamClientSeparation(t *testing.T) {
 
 	t.Run("injected Doer is used for streams as-is", func(t *testing.T) {
 		d := &stubDoer{}
-		client := New(1*time.Second, WithHTTPClient(d))
+		client := New(WithTimeout(1*time.Second), WithDoer(d))
 		if client.streamClient != Doer(d) {
 			t.Error("注入した Doer がストリームにも使われるべき")
 		}
@@ -91,3 +91,24 @@ func TestNew_StreamClientSeparation(t *testing.T) {
 type stubDoer struct{}
 
 func (*stubDoer) Do(*http.Request) (*http.Response, error) { return nil, ErrNilResponse }
+
+func TestClientTimeout(t *testing.T) {
+	testCases := []struct {
+		name   string
+		client *Client
+		want   time.Duration
+	}{
+		{"未指定なら既定値", New(), DefaultHTTPTimeout},
+		{"指定した値を使う", New(WithTimeout(3 * time.Second)), 3 * time.Second},
+		{"0 は既定値に落ちる", New(WithTimeout(0)), DefaultHTTPTimeout},
+		{"負の値も既定値に落ちる", New(WithTimeout(-1 * time.Second)), DefaultHTTPTimeout},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.client.timeout(); got != tc.want {
+				t.Errorf("timeout() = %v, 期待 %v", got, tc.want)
+			}
+		})
+	}
+}
