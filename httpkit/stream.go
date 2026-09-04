@@ -10,9 +10,13 @@ import (
 // SendStream は、組み立て済みのリクエストを実行し、レスポンスボディを
 // ストリーム (io.ReadCloser) として返します。読み終えたら Close してください。
 //
-// ストリーム用クライアントで実行するため、クライアント全体のタイムアウトは掛からず、
-// ボディ読み取りの寿命はリクエストの ctx に委ねられます（WithDoer で注入した Doer を
-// 使う場合はその設定に従います）。
+// ストリーム用クライアントで実行するため、ボディの読み取りには WithTimeout が
+// 掛かりません。ヘッダー受信までを Transport.ResponseHeaderTimeout で区切り、
+// 読み取りの寿命はリクエストの ctx に委ねます（WithDoer で注入した Doer を使う場合は
+// その設定に従うため、Timeout があればボディ読み取りごと切断されます）。
+//
+// 手組みの *http.Request には、ヘルパーが内部で付ける共通ヘッダー
+// (User-Agent / sec-ch-ua / Accept-Language) が付きません。URL の事前検証は掛かります。
 func (c *Client) SendStream(req *http.Request) (io.ReadCloser, error) {
 	var body io.ReadCloser
 
@@ -50,6 +54,9 @@ func (c *Client) doStream(req *http.Request) (*http.Response, error) {
 
 // ReadStream は GET リクエストを送信し、レスポンスボディを fn に読ませます。
 // ストリームの Close はこのメソッドが行うため、fn は読むことだけに集中できます。
+//
+// fn がボディを読む間、WithTimeout は掛かりません。長いダウンロードが途中で切れないよう、
+// 読み取りの寿命は ctx に委ねています。呼び出しごとの締切は ctx で与えてください。
 func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) error) error {
 	rc, err := c.GetStream(ctx, url)
 	if err != nil {
@@ -65,6 +72,9 @@ func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) 
 
 // GetStream は GET し、レスポンスボディをストリームとして返します。読み終えたら
 // Close してください。Close を書く場所がないなら ReadStream を使います。
+//
+// 返したストリームの読み取りには WithTimeout が掛かりません。長いダウンロードが途中で
+// 切れないよう、読み取りの寿命は ctx に委ねています。
 func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
