@@ -21,6 +21,9 @@ func WithTimeout(d time.Duration) ClientOption {
 // WithDoer はカスタムの Doer を設定します。モックの注入や既存の http.Client の
 // 再利用に使います。注入した Doer はストリーム系にもそのまま使われるため、
 // その Timeout はストリームのボディ読み取りにも及びます。
+//
+// これを渡しただけでは URL の事前検証は外れません。localhost や private IP が相手なら
+// WithSkipNetworkValidation(true) も添えてください。
 func WithDoer(client Doer) ClientOption {
 	return func(c *Client) {
 		c.httpClient = client

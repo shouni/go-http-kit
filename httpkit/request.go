@@ -12,6 +12,10 @@ import (
 // Send は、組み立て済みのリクエストをリトライ付きで実行します。
 // 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
 //
+// 一方で、ヘルパーが内部で付ける共通ヘッダー
+// (User-Agent / sec-ch-ua / Accept-Language) は付きません。必要なら
+// req.Header へ自分で設定してください。
+//
 // リトライさせるなら、ボディ付きのリクエストには req.GetBody を設定してください
 // （Post / PostJSON は自動で設定します）。
 func (c *Client) Send(req *http.Request) (*Result, error) {
