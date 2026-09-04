@@ -21,6 +21,8 @@ govulncheck ./...                   # vulnerability scan (also runs in CI)
 
 CI (`.github/workflows/ci.yml`) is a thin caller of the shared `shouni/workflows/.github/workflows/go-ci.yml@v1`; this repo passes no inputs, so it gets the defaults — three parallel jobs on push/PR to `main`/`develop` (build+vet+gofmt+`go test -race`, `golangci-lint`, `govulncheck`), no coverage upload, and no fuzz job. The golangci-lint version and job timeouts live in that shared workflow, not here. Go version is read from `go.mod` (currently 1.27).
 
+**v1.11.0 renamed the whole public surface at once and kept no aliases**, so anything written against v1.10.0 fails to compile rather than drifting: `DoRequest` → `Send`/`SendBytes`, `FetchBytes` → `Get`/`GetBytes`, `FetchAndDecodeJSON` → `GetJSON`, `PostRawBodyAndFetchBytes` → `Post` (argument order now matches `net/http`), `PostJSONAndFetchBytes` → `PostJSON`, `DoStreamRequest` → `SendStream`, `FetchStream` → `ReadStream`, `WithHTTPClient` → `WithDoer`, `Requester`/`Downloader` → the four narrow seams, and `New(timeout, opts...)` → `New(opts...)` + `WithTimeout`. The buffered paths returning `*Result` instead of `[]byte` is the part that needs thought at a call site; the rest is mechanical. `Client.ValidateURL`/`IsSecureServiceURL` and `HandleLimitedResponse` were deleted outright — call `securenet` directly, and pre-validation still happens automatically.
+
 ## Architecture
 
 Two packages: `httpkit` (the client) and `retry` (the backoff engine it runs on). There are no internal packages. Within `httpkit`, files are split by responsibility, and understanding a request's full path requires reading across several of them:
