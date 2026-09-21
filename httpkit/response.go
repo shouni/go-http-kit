@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/shouni/netarmor/securenet"
 )
 
 // HandleResponse はHTTPレスポンスを処理し、成功した場合はボディを返します。
@@ -77,11 +79,30 @@ func (c *Client) IsHTTPRetryableError(err error) bool {
 		return false
 	}
 
-	// 4. リトライ対象のHTTPエラー (5xx / 408 / 429) はリトライする
+	// 4. securenet が宛先を拒否したエラーはリトライしない
+	// 判定は URL とポリシーだけで決まるので、何度試しても結果は同じです。内部アドレスへの
+	// リダイレクトは SSRF の典型的な経路で、ここを再試行すると、拒否するだけの応答に
+	// バックオフの全時間を費やします。名前解決の失敗（securenet.ResolveError）と
+	// ErrNoAddresses は DNS の瞬断でありうるので、ここには含めません。
+	if isDeterministicSecurenetError(err) {
+		return false
+	}
+
+	// 5. リトライ対象のHTTPエラー (5xx / 408 / 429) はリトライする
 	if IsRetryableHTTPError(err) {
 		return true
 	}
 
 	// 明示的に非リトライと判定したもの以外は、一時的な通信エラー（タイムアウト等）の可能性を考慮してリトライする。
 	return true
+}
+
+// isDeterministicSecurenetError は、securenet が宛先そのものを理由に拒否したエラーかを返します。
+func isDeterministicSecurenetError(err error) bool {
+	return errors.Is(err, securenet.ErrRestrictedIP) ||
+		errors.Is(err, securenet.ErrDisallowedScheme) ||
+		errors.Is(err, securenet.ErrEmptyHost) ||
+		errors.Is(err, securenet.ErrInvalidURL) ||
+		errors.Is(err, securenet.ErrTooManyRedirects) ||
+		errors.Is(err, securenet.ErrRedirectDowngrade)
 }

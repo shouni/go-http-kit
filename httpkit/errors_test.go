@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/shouni/go-http-kit/httpkit"
+	"github.com/shouni/netarmor/securenet"
 )
 
 type timeoutNetError struct{}
@@ -57,6 +59,31 @@ func TestIsHTTPRetryableError(t *testing.T) {
 			if client.IsHTTPRetryableError(err) {
 				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
 			}
+		}
+	})
+
+	// 宛先そのものを理由にした拒否は、何度試しても結果が変わらない。http.Client は
+	// これを *url.Error に包んで返すので、その形でも判定できること。
+	t.Run("SecurenetDeterministicErrors", func(t *testing.T) {
+		for _, sentinel := range []error{
+			securenet.ErrRestrictedIP,
+			securenet.ErrDisallowedScheme,
+			securenet.ErrEmptyHost,
+			securenet.ErrInvalidURL,
+			securenet.ErrTooManyRedirects,
+			securenet.ErrRedirectDowngrade,
+		} {
+			err := &url.Error{Op: "Get", URL: "http://10.0.0.1/secret", Err: fmt.Errorf("dial: %w", sentinel)}
+			if client.IsHTTPRetryableError(err) {
+				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+			}
+		}
+	})
+
+	// 名前解決の失敗は DNS の瞬断でありうるので、リトライ対象のまま。
+	t.Run("SecurenetTransientErrors", func(t *testing.T) {
+		if !client.IsHTTPRetryableError(fmt.Errorf("lookup: %w", securenet.ErrNoAddresses)) {
+			t.Error("IsHTTPRetryableError(ErrNoAddresses) = false, 期待 true")
 		}
 	})
 }
