@@ -2,13 +2,16 @@ package httpkit_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/shouni/go-http-kit/httpkit"
+	"github.com/shouni/netarmor/securenet"
 )
 
 // TestWithoutRetryDisablesRetryOnDerivedClientOnly は、派生クライアントだけが
@@ -150,3 +153,27 @@ type doerFunc func(req *http.Request) (*http.Response, error)
 
 // Do は Doer インターフェースを実装します。
 func (f doerFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
+
+// TestRestrictedRedirectIsNotRetried は、内部アドレスへのリダイレクトのように securenet が
+// 宛先を拒否した失敗を、1 回の試行で諦めることを検証します。判定は何度試しても同じで、
+// 再試行するとバックオフの全時間を拒否するだけの応答に費やします。
+func TestRestrictedRedirectIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+	stub := doerFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		// http.Client が接続時検証の失敗を返すときの形。
+		return nil, &url.Error{Op: "Get", URL: "http://10.0.0.1/secret", Err: securenet.ErrRestrictedIP}
+	})
+
+	client := httpkit.New(httpkit.WithTimeout(1*time.Second), httpkit.WithDoer(stub),
+		httpkit.WithSkipNetworkValidation(true),
+	)
+
+	_, err := client.Get(context.Background(), "https://example.com/redirects-inside")
+	if !errors.Is(err, securenet.ErrRestrictedIP) {
+		t.Fatalf("Get() error = %v, want securenet.ErrRestrictedIP", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("試行回数 = %d, want 1（宛先の拒否は再試行しない）", got)
+	}
+}
