@@ -31,7 +31,18 @@ type RetryConfig struct {
 	MaxRetries      uint
 	InitialInterval time.Duration
 	MaxInterval     time.Duration
+	// MaxRetryAfter は、サーバが Retry-After で指示した待機時間の上限です。これを超える
+	// 指示は待たずに打ち切ります（retry.ErrRetryAfterTooLong）。0 は上限なしです。
+	MaxRetryAfter time.Duration
 }
+
+// DefaultMaxRetryAfter は Retry-After の指示に従って待つ時間の既定の上限です。
+//
+// 上限が無いと、相手サーバが「3600」と返しただけで呼び出し側の ctx が切れるまで
+// 眠り続けます。利用者が入力した URL を叩く用途では、待ち時間を相手に決めさせる
+// ことになります。バックオフの最大間隔（30 秒）の数倍あれば、混雑時の一時的な指示
+// には従えます。
+const DefaultMaxRetryAfter = 2 * time.Minute
 
 // DefaultRetryConfig は既定のリトライ設定を返します。
 func DefaultRetryConfig() RetryConfig {
@@ -39,6 +50,7 @@ func DefaultRetryConfig() RetryConfig {
 		MaxRetries:      retry.DefaultMaxRetries,
 		InitialInterval: retry.InitialBackoffInterval,
 		MaxInterval:     retry.MaxBackoffInterval,
+		MaxRetryAfter:   DefaultMaxRetryAfter,
 	}
 }
 
@@ -51,6 +63,9 @@ func (rc RetryConfig) retryOptions() []retry.Option {
 	}
 	if rc.MaxInterval > 0 {
 		opts = append(opts, retry.WithMaxInterval(rc.MaxInterval))
+	}
+	if rc.MaxRetryAfter > 0 {
+		opts = append(opts, retry.WithMaxRetryAfter(rc.MaxRetryAfter))
 	}
 	return opts
 }

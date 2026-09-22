@@ -65,6 +65,14 @@ func WithMaxInterval(d time.Duration) ClientOption {
 	}
 }
 
+// WithMaxRetryAfter は、サーバが Retry-After で指示した待機時間の上限を設定します。
+// これを超える指示は待たずに打ち切ります。0 は上限なしです。既定は DefaultMaxRetryAfter です。
+func WithMaxRetryAfter(d time.Duration) ClientOption {
+	return func(c *Client) {
+		c.RetryConfig.MaxRetryAfter = d
+	}
+}
+
 // WithMaxResponseBodySize は、バッファリング系が読み込むレスポンスボディの上限を
 // クライアント単位で設定します。0 以下は無視し、既定の MaxResponseBodySize を使います。
 func WithMaxResponseBodySize(n int64) ClientOption {
