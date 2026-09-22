@@ -212,3 +212,56 @@ func TestRetryAfterBeyondLimitStopsImmediately(t *testing.T) {
 		t.Errorf("RetryAfterDelay が失われています: %v", err)
 	}
 }
+
+// TestPerAttemptTimeoutIsRetried は、1 試行のタイムアウト（WithTimeout の発火）が再試行される
+// ことを検証します。文書の「最悪 4 × timeout + バックオフ」はこの前提です。以前は
+// context.DeadlineExceeded を一律に非リトライにしていたため、1 試行で諦めていました。
+func TestPerAttemptTimeoutIsRetried(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-r.Context().Done() // 相手が黙り込んだ状態。クライアント側のタイムアウトで切れる。
+	}))
+	defer srv.Close()
+
+	client := httpkit.New(httpkit.WithTimeout(50*time.Millisecond), httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithMaxRetries(2), httpkit.WithInitialInterval(time.Millisecond), httpkit.WithMaxInterval(2*time.Millisecond),
+	)
+
+	_, err := client.Get(context.Background(), srv.URL)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Get() error = %v, want context.DeadlineExceeded", err)
+	}
+	if !errors.Is(err, retry.ErrExhausted) {
+		t.Errorf("errors.Is(err, retry.ErrExhausted) = false: タイムアウトは回数上限まで再試行するはず: %v", err)
+	}
+	if got := hits.Load(); got != 3 {
+		t.Errorf("試行回数 = %d, want 3（初回 + 2 回）", got)
+	}
+}
+
+// TestCallerDeadlineIsNotRetried は、呼び出し側の ctx の期限切れは再試行しないことを
+// 検証します。1 試行のタイムアウトと同じ DeadlineExceeded で返るため、判定はエラーではなく
+// ctx を直接見ます。
+func TestCallerDeadlineIsNotRetried(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	client := httpkit.New(httpkit.WithTimeout(time.Second), httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithMaxRetries(3), httpkit.WithInitialInterval(time.Millisecond), httpkit.WithMaxInterval(2*time.Millisecond),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Get(ctx, srv.URL)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Get() error = %v, want context.DeadlineExceeded", err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Errorf("試行回数 = %d, want 1（呼び出し側の期限切れは再試行しない）", got)
+	}
+}

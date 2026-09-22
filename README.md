@@ -26,7 +26,7 @@
 * **既定で SSRF / DNS Rebinding 対策** — `netarmor/securenet` のクライアントを使い、URL の事前検証は
   すべてのリクエスト経路で自動的に行われます（許可スキームは `http` / `https`）。素の
   `*http.Response` を返す `Do` だけが、リトライも事前検証も通りません。
-* **指数バックオフのリトライ** — 5xx / 408 / 429 と、分類できない通信エラーが対象です。それ以外の 4xx は
+* **指数バックオフのリトライ** — 5xx / 408 / 429 と、1 試行のタイムアウトを含む通信エラーが対象です。それ以外の 4xx は
   `NonRetryableHTTPError` として再試行しません。サーバーが `Retry-After`（秒数・HTTP-date の両形式）を
   返した場合は、算出したバックオフより優先されます。指示が上限（既定 2 分、`WithMaxRetryAfter`）を
   超えるときは待たずに打ち切り、`retry.ErrRetryAfterTooLong` を返します。
