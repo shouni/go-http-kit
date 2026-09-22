@@ -43,6 +43,8 @@ type NotifyFunc func(err error, attempt uint, next time.Duration)
 // RetryAfter が正の値を返すと、次の待機時間は指数バックオフの算出値の代わりに
 // その値になり、以降のバックオフ計算はリセットされます。0 以下の値は無視されます。
 // WithMaxElapsedTime やコンテキストによる打ち切りは通常どおり適用されます。
+// 指示値が WithMaxRetryAfter の上限を超える場合は、待たずに ErrRetryAfterTooLong で
+// 打ち切ります。
 type DelayHinter interface {
 	RetryAfter() time.Duration
 }
@@ -56,6 +58,7 @@ type settings struct {
 	multiplier          float64
 	randomizationFactor float64
 	maxElapsedTime      time.Duration
+	maxRetryAfter       time.Duration
 	shouldRetry         ShouldRetryFunc
 	notify              NotifyFunc
 }
@@ -148,6 +151,21 @@ func WithMaxElapsedTime(d time.Duration) Option {
 	return func(s *settings) {
 		if d >= 0 {
 			s.maxElapsedTime = d
+		}
+	}
+}
+
+// WithMaxRetryAfter は、DelayHinter（Retry-After）が示す待機時間の上限を設定します。
+// 指示値がこれを超えた場合は待たずにリトライを打ち切り、ErrRetryAfterTooLong を返します。
+// 0（既定）は上限なしです。
+//
+// 上限を超えたときに切り詰めて待つのではなく打ち切るのは、サーバが「まだ来るな」と
+// 言った時間より早く叩いても同じ応答が返るだけで、呼び出し側に決定を返すほうが
+// 早いためです。指示値そのものは Error.Err（最後のエラー）に残ります。
+func WithMaxRetryAfter(d time.Duration) Option {
+	return func(s *settings) {
+		if d >= 0 {
+			s.maxRetryAfter = d
 		}
 	}
 }

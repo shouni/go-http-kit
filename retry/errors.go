@@ -17,6 +17,10 @@ var (
 
 	// ErrPermanent は、ShouldRetryFunc が false を返したためリトライを中止したことを示します。
 	ErrPermanent = errors.New("retry: permanent error")
+
+	// ErrRetryAfterTooLong は、DelayHinter が示した待機時間が WithMaxRetryAfter の上限を
+	// 超えたためリトライを中止したことを示します。Error.Permanent も true になります。
+	ErrRetryAfterTooLong = errors.New("retry: server-requested delay exceeds the limit")
 )
 
 // Error はリトライが失敗したときに返される型付きエラーです。

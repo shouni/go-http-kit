@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -84,19 +85,28 @@ func classifyStatusError(statusCode int, body []byte, retryAfter time.Duration) 
 	return &NonRetryableHTTPError{StatusCode: statusCode, Body: body}
 }
 
+// maxRetryAfterSeconds は time.Duration で表せる秒数の上限です。これより大きい秒数は
+// 掛け算で桁あふれして負や小さな値になるため、ここで頭打ちにします。
+const maxRetryAfterSeconds = int64(math.MaxInt64 / int64(time.Second))
+
 // parseRetryAfter は Retry-After ヘッダー値を待機時間として解釈します。
 // 秒数（非負整数）と HTTP-date の両形式に対応し、解釈できない値・過去の時刻・
-// 空文字は 0（指定なし）として扱います。
+// 空文字は 0（指定なし）として扱います。time.Duration に収まらない秒数は上限値に
+// 切り詰めます（上限に従うか打ち切るかは retry.WithMaxRetryAfter が決めます）。
 func parseRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0
 	}
 
-	if secs, err := strconv.Atoi(value); err == nil {
-		if secs <= 0 {
-			return 0
-		}
+	secs, err := strconv.ParseInt(value, 10, 64)
+	switch {
+	case err == nil && secs <= 0:
+		return 0
+	case err == nil && secs > maxRetryAfterSeconds,
+		errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(value, "-"):
+		return time.Duration(maxRetryAfterSeconds) * time.Second
+	case err == nil:
 		return time.Duration(secs) * time.Second
 	}
 

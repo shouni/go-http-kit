@@ -310,6 +310,54 @@ func (e *rateLimitedError) RetryAfter() time.Duration { return e.after }
 func TestRetryAfterHint(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("上限を超えるヒントは待たずに打ち切ること", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			hinted := &rateLimitedError{after: time.Hour}
+			var calls int
+
+			start := time.Now()
+			err := retry.Run(ctx, func() error { calls++; return hinted },
+				retry.WithMaxRetries(3),
+				retry.WithMaxRetryAfter(time.Minute),
+			)
+
+			if calls != 1 {
+				t.Errorf("試行回数 = %d, 期待 1", calls)
+			}
+			if waited := time.Since(start); waited != 0 {
+				t.Errorf("打ち切るべきところで %v 待ちました", waited)
+			}
+			if !errors.Is(err, retry.ErrRetryAfterTooLong) {
+				t.Errorf("errors.Is(err, ErrRetryAfterTooLong) = false: %v", err)
+			}
+			if !errors.Is(err, retry.ErrPermanent) {
+				t.Errorf("errors.Is(err, ErrPermanent) = false: %v", err)
+			}
+			if !errors.Is(err, hinted) {
+				t.Errorf("元のエラーが失われています: %v", err)
+			}
+		})
+	})
+
+	t.Run("上限以内のヒントは従うこと", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			hinted := &rateLimitedError{after: 40 * time.Millisecond}
+			var waits []time.Duration
+
+			_ = retry.Run(ctx, func() error { return hinted },
+				retry.WithMaxRetries(1),
+				retry.WithMaxRetryAfter(50*time.Millisecond),
+				retry.WithNotify(func(_ error, _ uint, next time.Duration) {
+					waits = append(waits, next)
+				}),
+			)
+
+			if len(waits) != 1 || waits[0] != 40*time.Millisecond {
+				t.Errorf("待機時間 = %v, 期待 [40ms]", waits)
+			}
+		})
+	})
+
 	t.Run("ヒントが次の待機時間として使われること", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: 80 * time.Millisecond}

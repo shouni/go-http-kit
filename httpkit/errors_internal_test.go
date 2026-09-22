@@ -19,6 +19,10 @@ func TestParseRetryAfter(t *testing.T) {
 		{"空文字は指定なし", "", 0},
 		{"解釈できない値は指定なし", "soon", 0},
 		{"過去のHTTP-dateは指定なし", "Mon, 02 Jan 2006 15:04:05 GMT", 0},
+		// time.Duration に収まらない秒数は、負や小さな値に化けさせず上限に切り詰める。
+		{"Durationの上限を超える秒数", "9223372037", time.Duration(maxRetryAfterSeconds) * time.Second},
+		{"int64を超える秒数", "99999999999999999999", time.Duration(maxRetryAfterSeconds) * time.Second},
+		{"int64を下回る秒数は指定なし", "-99999999999999999999", 0},
 	}
 
 	for _, tt := range tests {

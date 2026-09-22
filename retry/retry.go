@@ -31,6 +31,7 @@
 //
 // 操作が返すエラーが DelayHinter を実装している場合、次の待機時間は
 // 指数バックオフの算出値ではなくその指示値になります（HTTP の Retry-After 対応など）。
+// 指示値に上限を掛けるには WithMaxRetryAfter を使います。
 //
 // # エラー
 //
@@ -44,6 +45,7 @@ package retry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cenkalti/backoff/v7"
@@ -131,6 +133,9 @@ func RunValue[T any](ctx context.Context, op func() (T, error), opts ...Option) 
 		// 伝える。元のエラーは cause として保持され、打ち切り時に
 		// RetryError.LastErr として戻るため失われない。
 		if d, ok := retryAfterHint(err); ok {
+			if s.maxRetryAfter > 0 && d > s.maxRetryAfter {
+				return v, backoff.Permanent(fmt.Errorf("%w (%v > %v): %w", ErrRetryAfterTooLong, d, s.maxRetryAfter, err))
+			}
 			return v, backoff.RetryAfter(d, err)
 		}
 		return v, err

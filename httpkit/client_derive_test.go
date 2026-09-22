@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shouni/go-http-kit/httpkit"
+	"github.com/shouni/go-http-kit/retry"
 	"github.com/shouni/netarmor/securenet"
 )
 
@@ -175,5 +176,39 @@ func TestRestrictedRedirectIsNotRetried(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("試行回数 = %d, want 1（宛先の拒否は再試行しない）", got)
+	}
+}
+
+// TestRetryAfterBeyondLimitStopsImmediately は、相手サーバが上限を超える Retry-After を返した
+// ときに、待たずに 1 回の試行で諦めることを検証します。上限が無いと、相手が「3600」と
+// 返しただけで呼び出し側の ctx が切れるまで眠り続けます。
+func TestRetryAfterBeyondLimitStopsImmediately(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	client := httpkit.New(httpkit.WithTimeout(time.Second), httpkit.WithSkipNetworkValidation(true),
+		httpkit.WithInitialInterval(time.Millisecond), httpkit.WithMaxInterval(2*time.Millisecond),
+	)
+
+	start := time.Now()
+	_, err := client.Get(context.Background(), srv.URL)
+	if !errors.Is(err, retry.ErrRetryAfterTooLong) {
+		t.Fatalf("Get() error = %v, want retry.ErrRetryAfterTooLong", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("試行回数 = %d, want 1", got)
+	}
+	if waited := time.Since(start); waited > 500*time.Millisecond {
+		t.Errorf("打ち切るべきところで %v 待ちました", waited)
+	}
+	// 相手の指示は最後のエラーに残る。
+	retryable, ok := errors.AsType[*httpkit.RetryableHTTPError](err)
+	if !ok || retryable.RetryAfterDelay != time.Hour {
+		t.Errorf("RetryAfterDelay が失われています: %v", err)
 	}
 }
