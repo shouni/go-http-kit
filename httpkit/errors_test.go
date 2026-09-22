@@ -23,14 +23,23 @@ func (timeoutNetError) Temporary() bool { return false }
 func TestIsHTTPRetryableError(t *testing.T) {
 	client := httpkit.New()
 
-	t.Run("ContextErrors", func(t *testing.T) {
+	t.Run("Canceled", func(t *testing.T) {
 		for _, err := range []error{
 			context.Canceled,
-			fmt.Errorf("fail: %w", context.DeadlineExceeded),
+			fmt.Errorf("fail: %w", context.Canceled),
 		} {
 			if client.IsHTTPRetryableError(err) {
 				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
 			}
+		}
+	})
+
+	// 1 試行のタイムアウトは DeadlineExceeded として返る。呼び出し側の ctx の期限切れと
+	// エラーだけでは区別できないため、判定単独ではリトライ対象とし、ctx は Client 側が見る。
+	t.Run("DeadlineExceededIsRetryable", func(t *testing.T) {
+		err := fmt.Errorf("fail: %w", context.DeadlineExceeded)
+		if !client.IsHTTPRetryableError(err) {
+			t.Errorf("IsHTTPRetryableError(%v) = false, 期待 true", err)
 		}
 	})
 

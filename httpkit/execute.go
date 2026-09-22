@@ -67,9 +67,18 @@ func (c *Client) doWithRetry(ctx context.Context, operationName string, op func(
 		return op()
 	}
 
+	// 呼び出し側の ctx が終わっていれば再試行しない。1 試行のタイムアウトも ctx の
+	// 期限切れも同じ context.DeadlineExceeded で返るため、エラーだけでは見分けられず、
+	// ここで ctx を直接見る。前者はリトライ対象（文書の「最悪 4 × timeout」はこの前提）。
+	shouldRetry := func(err error) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		return c.IsHTTPRetryableError(err)
+	}
 	opts := append(c.RetryConfig.retryOptions(),
 		retry.WithName(operationName),
-		retry.WithShouldRetry(c.IsHTTPRetryableError),
+		retry.WithShouldRetry(shouldRetry),
 	)
 	return retry.Run(ctx, op, opts...)
 }

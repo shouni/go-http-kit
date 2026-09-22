@@ -52,15 +52,21 @@ func handleResponseWithLimit(resp *http.Response, maxBodySize int64) ([]byte, er
 
 // IsHTTPRetryableError はエラーがリトライ対象かを判定します。
 // シグネチャは retry.ShouldRetryFunc を満たします。
+//
+// 1 試行のタイムアウト（WithTimeout や ResponseHeaderTimeout の発火）はリトライ対象です。
+// これは context.DeadlineExceeded として返りますが、呼び出し側の ctx の期限切れとは
+// エラーだけでは区別できません。呼び出し側の ctx が終わったかどうかは、この判定では
+// なく Client 側が実行前に ctx を見て決めます（doWithRetry）。この判定を単独で使う
+// 場合は、同じ確認を呼び出し側で行ってください。
 func (c *Client) IsHTTPRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// 1. Contextエラー（タイムアウト/キャンセル）はリトライしない
-	// 呼び出し側が意図的に中断した、または期限が切れた操作を再試行すると
-	// 意図しないリソース消費や無限ループを招く可能性があるため。
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	// 1. 呼び出し側のキャンセルはリトライしない。Canceled は ctx の明示的な取り消し
+	// からしか生じないので、エラーだけで判定できる。DeadlineExceeded は 1 試行の
+	// タイムアウトでも生じるため、ここでは弾かない（上の説明を参照）。
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 
