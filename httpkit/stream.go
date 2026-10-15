@@ -23,7 +23,7 @@ func (c *Client) SendStream(req *http.Request) (io.ReadCloser, error) {
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, err := c.doStream(r)
 		if err != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), err)
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", redactURL(r.URL), redactURLError(err))
 		}
 
 		// nil レスポンス/ボディの検査は checkResponseStatus に集約されている
@@ -65,7 +65,7 @@ func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) 
 	defer rc.Close()
 
 	if err := fn(rc); err != nil {
-		return fmt.Errorf("URL %q のストリーム処理に失敗しました: %w", url, err)
+		return fmt.Errorf("URL %q のストリーム処理に失敗しました: %w", redactURLString(url), err)
 	}
 	return nil
 }
