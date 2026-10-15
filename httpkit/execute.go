@@ -17,7 +17,7 @@ func (c *Client) execute(req *http.Request) (*Result, error) {
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, doErr := c.Do(r)
 		if doErr != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", r.URL.String(), doErr)
+			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", redactURL(r.URL), redactURLError(doErr))
 		}
 		if resp != nil {
 			res.Status = resp.StatusCode
@@ -37,7 +37,7 @@ func (c *Client) execute(req *http.Request) (*Result, error) {
 func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("HTTPリクエスト作成失敗 (method: %s, url: %s): %w", method, urlStr, err)
+		return nil, fmt.Errorf("HTTPリクエスト作成失敗 (method: %s, url: %s): %w", method, redactURLString(urlStr), redactURLError(err))
 	}
 
 	c.addCommonHeaders(req)
@@ -103,7 +103,8 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 		}
 	}
 
-	operationName := req.Method + " " + urlStr
+	// 操作名はリトライのエラー文面に載るため、検証に渡す urlStr とは別に伏せたものを使う。
+	operationName := req.Method + " " + redactURL(req.URL)
 
 	isFirstAttempt := true
 	return c.doWithRetry(req.Context(), operationName, func() error {
