@@ -8,6 +8,10 @@ import (
 // redactedQuery は、伏せたクエリの代わりに置く値です。クエリが付いていたことだけを残します。
 const redactedQuery = "REDACTED"
 
+// redactedUserinfo は、解析できない URL のユーザー情報の代わりに置く値です。
+// url.URL.Redacted がパスワードに使う表記に揃えています。
+const redactedUserinfo = "xxxxx"
+
 // redactURL は、エラーメッセージやリトライの操作名に載せる URL の文字列を返します。
 //
 // エラーはそのままログに出ます。クエリには署名付き URL の署名や `?key=` の API キーが
@@ -28,16 +32,30 @@ func redactURL(u *url.URL) string {
 }
 
 // redactURLString は redactURL の文字列版です。解析できない URL でも、
-// `?` / `#` 以降は秘密を含みうるので切り落とします。
+// `?` / `#` 以降は秘密を含みうるので切り落とし、`://` の後ろのオーソリティに `@` が
+// あればユーザー情報ごと伏せます（パスワードだけを見分ける手がかりがないため）。
 func redactURLString(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		if i := strings.IndexAny(raw, "?#"); i >= 0 {
-			return raw[:i] + "?" + redactedQuery
-		}
-		return raw
+	if u, err := url.Parse(raw); err == nil {
+		return redactURL(u)
 	}
-	return redactURL(u)
+
+	s := raw
+	suffix := ""
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+		suffix = "?" + redactedQuery
+	}
+	if i := strings.Index(s, "://"); i >= 0 {
+		authStart := i + len("://")
+		authEnd := len(s)
+		if j := strings.IndexByte(s[authStart:], '/'); j >= 0 {
+			authEnd = authStart + j
+		}
+		if at := strings.LastIndexByte(s[authStart:authEnd], '@'); at >= 0 {
+			s = s[:authStart] + redactedUserinfo + s[authStart+at:]
+		}
+	}
+	return s + suffix
 }
 
 // redactURLError は、エラーが *url.Error なら、その URL を伏せた写しを返します。

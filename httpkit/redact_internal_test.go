@@ -19,6 +19,8 @@ func TestRedactURLString(t *testing.T) {
 		{"パスワードは Redacted と同じく伏せる", "https://user:secret@example.com/a", "https://user:xxxxx@example.com/a"},
 		{"解析できない URL も ? 以降を落とす", "http://example.com/%zz?token=secret", "http://example.com/%zz?REDACTED"},
 		{"解析できず ? も無ければそのまま", "http://example.com/%zz", "http://example.com/%zz"},
+		{"解析できない URL のユーザー情報は丸ごと伏せる", "http://user:secret@example.com/%zz", "http://xxxxx@example.com/%zz"},
+		{"解析できない URL のパスの @ は残す", "http://example.com/%zz/a@b", "http://example.com/%zz/a@b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
