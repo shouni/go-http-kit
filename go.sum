@@ -1,4 +1,4 @@
-github.com/cenkalti/backoff/v7 v7.0.2 h1:BNsyJsriOksnzphDFm5hBB51nl9AQaedacdrC9mXsi0=
-github.com/cenkalti/backoff/v7 v7.0.2/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
+github.com/cenkalti/backoff/v7 v7.0.3 h1:oJlXCmDgfNcGYViwioz1cZ1kHebejP4OLfJ/gqMQVWA=
+github.com/cenkalti/backoff/v7 v7.0.3/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/shouni/netarmor v1.4.3 h1:/FiL5H7XeheFE3+PPI2l5Ne38mmSW9oDWbMBJ0RcoIk=
 github.com/shouni/netarmor v1.4.3/go.mod h1:BeqmhJtYfJ4bw0OpT5pu4HUXHkHHY6y5Wu0BDjsyr28=
