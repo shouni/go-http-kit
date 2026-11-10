@@ -5,19 +5,21 @@ import (
 	"strings"
 )
 
-// redactedQuery は、伏せたクエリの代わりに置く値です。クエリが付いていたことだけを残します。
+// redactedQuery replaces a redacted query. It records only that a query was present.
 const redactedQuery = "REDACTED"
 
-// redactedUserinfo は、解析できない URL のユーザー情報の代わりに置く値です。
-// url.URL.Redacted がパスワードに使う表記に揃えています。
+// redactedUserinfo replaces the userinfo of a URL that cannot be parsed.
+// It matches the notation url.URL.Redacted uses for passwords.
 const redactedUserinfo = "xxxxx"
 
-// redactURL は、エラーメッセージやリトライの操作名に載せる URL の文字列を返します。
+// redactURL returns the URL string to put in error messages and retry
+// operation names.
 //
-// エラーはそのままログに出ます。クエリには署名付き URL の署名や `?key=` の API キーが
-// 乗ることがあり、url.URL.Redacted が伏せるのはユーザー情報のパスワードだけです。
-// そこでクエリとフラグメントは値を落とし、付いていたことだけを残します。
-// どこへの呼び出しが失敗したかを追うには、スキーム・ホスト・パスで足ります。
+// Errors go to logs as they are. A query can carry a signed URL's signature or
+// an API key in `?key=`, and url.URL.Redacted hides only the userinfo
+// password. So the query and fragment values are dropped, keeping only the
+// fact that they were present. Scheme, host and path are enough to trace
+// which call failed.
 func redactURL(u *url.URL) string {
 	if u == nil {
 		return ""
@@ -31,9 +33,10 @@ func redactURL(u *url.URL) string {
 	return c.Redacted()
 }
 
-// redactURLString は redactURL の文字列版です。解析できない URL でも、
-// `?` / `#` 以降は秘密を含みうるので切り落とし、`://` の後ろのオーソリティに `@` が
-// あればユーザー情報ごと伏せます（パスワードだけを見分ける手がかりがないため）。
+// redactURLString is the string form of redactURL. Even for a URL that cannot
+// be parsed, everything from `?` / `#` on may contain secrets and is cut off,
+// and if the authority after `://` contains `@`, the whole userinfo is hidden
+// (there is nothing to tell the password apart by).
 func redactURLString(raw string) string {
 	if u, err := url.Parse(raw); err == nil {
 		return redactURL(u)
@@ -58,17 +61,21 @@ func redactURLString(raw string) string {
 	return s + suffix
 }
 
-// redactURLError は、エラーが *url.Error なら、その URL を伏せた写しを返します。
-// Doer の失敗と、url.Parse が返す解析の失敗がこの形です。
+// redactURLError returns a copy of err with its URL redacted when err is a
+// *url.Error. Doer failures and the parse failures url.Parse returns take
+// this form.
 //
-// http.Client.Do のエラーは、パスワードだけを落としたリクエスト URL（リダイレクト中なら
-// その時点の URL）をクエリごと抱えています。包んで返すだけでは、こちらで伏せても
-// 文面の後半にそのまま出ます。元のエラー値は書き換えず、写しを作って差し替えるので、
-// 注入された Doer が同じ値を使い回していても影響しません。Err はそのまま残るため、
-// errors.Is / errors.As による分類は変わりません。
+// An http.Client.Do error carries the request URL (or, mid-redirect, the URL
+// at that point) with only the password removed, query included. Merely
+// wrapping it would leave the URL in the second half of the message even
+// though we redacted ours. The original error value is not modified; a copy
+// is made and substituted, so an injected Doer reusing the same value is
+// unaffected. Err is kept as is, so classification with errors.Is /
+// errors.As does not change.
 //
-// 見るのは最上位の *url.Error だけです。http.Client が返す形はこれで、さらに奥に
-// 包まれた *url.Error の写しを作るには、外側の包みを組み直す必要があるためです。
+// Only the top-level *url.Error is inspected. That is the form http.Client
+// returns, and copying a *url.Error wrapped further down would mean
+// rebuilding the outer wrappers.
 func redactURLError(err error) error {
 	ue, ok := err.(*url.Error)
 	if !ok || ue == nil {

@@ -8,55 +8,59 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shouni/go-http-kit.svg)](https://pkg.go.dev/github.com/shouni/go-http-kit)
 
-## 🚀 概要 (About) - 呼び出す側の防御を既定で。サーバー側は持ちません
+English | [日本語](README.ja.md)
 
-`go-http-kit` は、外部へ HTTP を呼ぶたびに書き足すことになる防御を最初から備えたクライアント (`httpkit`) と、
-その土台の汎用リトライ (`retry`) を提供します。SSRF / DNS Rebinding 対策・指数バックオフ・レスポンスサイズの
-上限は、どのメソッドから入っても同じように掛かります。
+## 🚀 About - Caller-side defences by default; no server side
 
-引き受けるのは**呼び出す側**だけです。応答を返す側の定型は
-[go-serve-kit](https://github.com/shouni/go-serve-kit) が持ち、認証情報の管理や取得したバイト列の解釈は
-呼び出し側に残ります。`net/http` 互換の `Doer` が差し替え点なので、既存の `http.Client` やテスト用の
-モックをそのまま注入できます。
+`go-http-kit` provides a client (`httpkit`) that comes with the defences you would otherwise keep adding every time
+you call out over HTTP, and the general-purpose retry engine underneath it (`retry`). SSRF / DNS rebinding
+protection, exponential backoff and a response size cap apply the same way whichever method you come in through.
 
----
-
-## ✨ 提供機能 (Features)
-
-* **既定で SSRF / DNS Rebinding 対策** — `netarmor/securenet` のクライアントを使い、URL の事前検証は
-  すべてのリクエスト経路で自動的に行われます（許可スキームは `http` / `https`）。素の
-  `*http.Response` を返す `Do` だけが、リトライも事前検証も通りません。
-* **指数バックオフのリトライ** — 5xx / 408 / 429 と、1 試行のタイムアウトを含む通信エラーが対象です。それ以外の 4xx は
-  `NonRetryableHTTPError` として再試行しません。サーバーが `Retry-After`（秒数・HTTP-date の両形式）を
-  返した場合は、算出したバックオフより優先されます。指示が上限（既定 2 分、`WithMaxRetryAfter`）を
-  超えるときは待たずに打ち切り、`retry.ErrRetryAfterTooLong` を返します。
-* **レスポンスサイズの上限** — バッファリング系の読み込みには上限があり、超過は
-  `ErrResponseBodyTooLarge` になります。`Content-Length` が上限を超えていれば body を読まずに返します。
-* **ストリーム取得は全体タイムアウトの外** — 長いダウンロードが途中で切られません
-  （コネクションプールはバッファリング系と共有します）。
-* **`WithoutRetry` による派生** — 設定とコネクションプールを共有したまま、送信用にリトライだけを切れます。
-* **単体で使える `retry`** — HTTP に依らない汎用リトライとして公開しています。
-
-設定は関数オプション、失敗は型と番兵で分類できます。オプション・メソッド・エラー値・定数の一覧は
-[pkg.go.dev](https://pkg.go.dev/github.com/shouni/go-http-kit) にあります。
+It takes on only the **calling** side. The boilerplate for the side that answers lives in
+[go-serve-kit](https://github.com/shouni/go-serve-kit), and managing credentials and interpreting the fetched bytes
+stay with the caller. The `net/http`-compatible `Doer` is the injection point, so an existing `http.Client` or a test
+mock can be plugged in as is.
 
 ---
 
-## 📦 パッケージ構成 (Package Structure)
+## ✨ Features
+
+* **SSRF / DNS rebinding protection by default** — uses the `netarmor/securenet` client, and URL pre-validation
+  runs automatically on every request path (allowed schemes: `http` / `https`). Only `Do`, which returns a bare
+  `*http.Response`, skips both retries and pre-validation.
+* **Retries with exponential backoff** — on 5xx / 408 / 429 and on network errors, including a per-attempt timeout.
+  Any other 4xx is a `NonRetryableHTTPError` and is not retried. When the server returns `Retry-After` (either
+  seconds or an HTTP-date), it takes precedence over the computed backoff. When the requested wait exceeds the cap
+  (2 minutes by default, `WithMaxRetryAfter`), the client gives up without waiting and returns
+  `retry.ErrRetryAfterTooLong`.
+* **Response size cap** — buffered reads have a cap, and going over it is `ErrResponseBodyTooLarge`. When
+  `Content-Length` already exceeds the cap, it returns without reading the body.
+* **Streams are outside the overall timeout** — long downloads are not cut off midway
+  (the connection pool is shared with the buffered paths).
+* **Derive with `WithoutRetry`** — turn off only the retries for sending, while sharing the configuration and the
+  connection pool.
+* **`retry` works on its own** — exposed as a general-purpose retry that does not depend on HTTP.
+
+Configuration is through functional options, and failures can be classified by type and sentinel. The full list of
+options, methods, error values and constants is on [pkg.go.dev](https://pkg.go.dev/github.com/shouni/go-http-kit).
+
+---
+
+## 📦 Package Structure
 
 ```text
 go-http-kit/
-├── httpkit/   # HTTP クライアント。SSRF 事前検証・リトライ・サイズ上限・ストリーム
-└── retry/     # 汎用の指数バックオフ（cenkalti/backoff のラッパ）。httpkit が乗る土台
+├── httpkit/   # HTTP client: SSRF pre-validation, retries, size cap, streams
+└── retry/     # General-purpose exponential backoff (a cenkalti/backoff wrapper); the base httpkit runs on
 ```
 
-`retry` は「いつ・どれだけ待つか」だけを決め、HTTP を知りません。「何を再試行する価値があるか」と
-「リクエストをどう再送するか」は `httpkit` 側です。この分離があるので、HTTP を介さない取得ループも
-同じエンジンに乗せられます。
+`retry` decides only "when and how long to wait" and knows nothing about HTTP. "What is worth retrying" and "how to
+resend a request" belong to `httpkit`. Because of this split, fetch loops that do not go through HTTP can run on the
+same engine.
 
 ---
 
-## 🚦 使い方 (Usage)
+## 🚦 Usage
 
 ```go
 client := httpkit.New(
@@ -72,29 +76,29 @@ if err := client.GetJSON(ctx, "https://api.example.com/data", &out); err != nil 
 }
 ```
 
-オプションはすべて省略できます。`httpkit.New()` は既定のタイムアウト・リトライ 3 回・SSRF 対策ありの
-クライアントを返します。ステータスやヘッダーも見たい場合は `Get` / `Post` / `Send` が `*Result` を返し、
-大きなファイルは `ReadStream` / `GetStream` で受け取ります。
+Every option can be omitted. `httpkit.New()` returns a client with the default timeout, 3 retries and SSRF
+protection. If you also need the status or headers, `Get` / `Post` / `Send` return a `*Result`, and large files are
+received with `ReadStream` / `GetStream`.
 
-**リトライ判定はエラーだけで決まり、HTTP メソッドを見ません。POST も再試行されるため、非冪等な送信は
-二重実行になり得ます。** 再送したくない呼び出しは `client.WithoutRetry()`（クライアント全体なら
-`WithNoRetry`）でリトライを切って宣言してください。
+**The retry decision is made from the error alone and never looks at the HTTP method. POSTs are retried too, so a
+non-idempotent send can run twice.** Declare calls that must not be resent by turning retries off with
+`client.WithoutRetry()` (or `WithNoRetry` for the whole client).
 
-**踏むと高くつく点も、それぞれの godoc に書いてあります** — メソッドから自動判定しない理由
-（パッケージドキュメント）、`WithTimeout` がリトライと重なって伸びること（`DefaultHTTPTimeout`）、
-ストリームのボディ読み取りには掛からないこと（`GetStream` / `ReadStream`）、手組みのリクエストに
-共通ヘッダーが付かないことと `req.GetBody` が要ること（`Send`）、`WithDoer` を渡しても事前検証は
-外れないこと（`WithDoer`）。
-
----
-
-## 🤝 依存関係 (Dependencies)
-
-* [shouni/netarmor](https://github.com/shouni/netarmor) - ネットワークセキュリティ（`securenet`）
-* [cenkalti/backoff](https://github.com/cenkalti/backoff) - `retry` パッケージの指数バックオフ実装
+**The expensive pitfalls are each written up in their godoc as well** — why the method is not used to decide
+automatically (the package documentation), that `WithTimeout` stretches when combined with retries
+(`DefaultHTTPTimeout`), that it does not apply to stream body reads (`GetStream` / `ReadStream`), that hand-built
+requests get no common headers and need `req.GetBody` (`Send`), and that passing `WithDoer` does not turn off
+pre-validation (`WithDoer`).
 
 ---
 
-## 📜 ライセンス (License)
+## 🤝 Dependencies
 
-このプロジェクトは [MIT License](https://opensource.org/licenses/MIT) の下で公開されています。
+* [shouni/netarmor](https://github.com/shouni/netarmor) - network security (`securenet`)
+* [cenkalti/backoff](https://github.com/cenkalti/backoff) - the exponential backoff implementation behind the `retry` package
+
+---
+
+## 📜 License
+
+This project is released under the [MIT License](https://opensource.org/licenses/MIT).

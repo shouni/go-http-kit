@@ -6,44 +6,46 @@ import (
 	"net/http"
 )
 
-// このパッケージの口は、リクエストの作り方（既製の *http.Request か、url からか）で
-// 分けてあります。利用者は必要な口だけを受け取ってください。5 つすべてが要るなら
-// 集約の HTTPClient を、レスポンスを自分で扱うなら Doer を使います。
+// This package's interfaces are split by how the request is built (a prepared
+// *http.Request or a url). Accept only the interface you need. Use the
+// aggregate HTTPClient if you need all five, or Doer to handle the response
+// yourself.
 
-// Doer は標準の http.Client.Do と互換性のあるインターフェースです。
-// リトライも SSRF 事前検証も掛かりません。WithDoer の差し替え点でもあります。
+// Doer is an interface compatible with the standard http.Client.Do.
+// Neither retries nor the SSRF pre-check apply. It is also the injection point
+// for WithDoer.
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Sender は、組み立て済みのリクエストをリトライ付きで実行する口です。
-// ヘッダーを自分で立てたい場合や、GET / POST 以外のメソッドを使う場合に使います。
+// Sender runs a prepared request with retries.
+// Use it to set headers yourself or to use a method other than GET / POST.
 type Sender interface {
 	Send(req *http.Request) (*Result, error)
 	SendBytes(req *http.Request) ([]byte, error)
 }
 
-// Getter は url を GET し、ボディを読み切って返す口です。
+// Getter GETs a url and returns the fully read body.
 type Getter interface {
 	Get(ctx context.Context, url string) (*Result, error)
 	GetBytes(ctx context.Context, url string) ([]byte, error)
 	GetJSON(ctx context.Context, url string, v any) error
 }
 
-// Poster は url へ POST し、ボディを読み切って返す口です。
+// Poster POSTs to a url and returns the fully read body.
 type Poster interface {
 	Post(ctx context.Context, url, contentType string, body []byte) (*Result, error)
 	PostJSON(ctx context.Context, url string, data any) (*Result, error)
 }
 
-// Streamer は、レスポンスボディをメモリに載せずストリームのまま扱う口です。
-// 大きなファイルの取得に使います。
+// Streamer handles the response body as a stream without loading it into
+// memory. Use it to fetch large files.
 type Streamer interface {
 	GetStream(ctx context.Context, url string) (io.ReadCloser, error)
 	ReadStream(ctx context.Context, url string, fn func(io.Reader) error) error
 }
 
-// HTTPClient は上記すべてを束ねた集約インターフェースです。
+// HTTPClient is the aggregate interface combining all of the above.
 type HTTPClient interface {
 	Doer
 	Sender

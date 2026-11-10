@@ -6,50 +6,51 @@ import (
 )
 
 const (
-	// DefaultMaxRetries は既定の最大リトライ回数です（初回実行を除く）。
+	// DefaultMaxRetries is the default maximum number of retries (not counting the first attempt).
 	DefaultMaxRetries = 3
-	// InitialBackoffInterval は既定の初期バックオフ間隔です。
+	// InitialBackoffInterval is the default initial backoff interval.
 	InitialBackoffInterval = 5 * time.Second
-	// MaxBackoffInterval は既定の最大バックオフ間隔です。
+	// MaxBackoffInterval is the default maximum backoff interval.
 	MaxBackoffInterval = 30 * time.Second
-	// DefaultMultiplier は既定のバックオフ倍率です。
+	// DefaultMultiplier is the default backoff multiplier.
 	DefaultMultiplier = 1.5
-	// DefaultRandomizationFactor は既定のジッタ係数です。
-	// 実際の待機時間は算出値の ±50% の範囲でランダムに散らされます。
+	// DefaultRandomizationFactor is the default jitter factor.
+	// The actual wait is randomly spread within ±50% of the computed value.
 	DefaultRandomizationFactor = 0.5
 )
 
-// Operation はリトライ可能な処理を表す関数です。
+// Operation is a function representing a retryable operation.
 type Operation func() error
 
-// OperationCtx は、コンテキストを受け取るリトライ可能な処理を表す関数です。
-// RunCtx / RunValueCtx から、呼び出し側が渡した ctx がそのまま渡されます。
+// OperationCtx is a function representing a retryable operation that takes a
+// context. RunCtx / RunValueCtx pass it the caller's ctx as is.
 type OperationCtx func(ctx context.Context) error
 
-// ShouldRetryFunc はエラーを受け取り、そのエラーがリトライ可能かどうかを判定します。
-// false を返すとリトライを打ち切り、Error.Permanent が true になります。
+// ShouldRetryFunc takes an error and reports whether it is retryable.
+// Returning false stops retrying and sets Error.Permanent.
 type ShouldRetryFunc func(error) bool
 
-// NotifyFunc はリトライ直前に呼び出されます。
-// attempt は失敗した試行の回数（1 始まり）、next は次の試行までの待機時間です。
-// ログ出力やメトリクス送信に使用してください。
+// NotifyFunc is called just before a retry.
+// attempt is the number of the failed attempt (1-based), and next is the wait
+// before the next attempt. Use it for logging or metrics.
 type NotifyFunc func(err error, attempt uint, next time.Duration)
 
-// DelayHinter は、次のリトライまで最低限待つべき時間をエラー自身が
-// 提示するためのインターフェースです。HTTP 429/503 の Retry-After ヘッダーの
-// ように、サーバが待機時間を指定してきた場合にエラー型へ実装してください。
+// DelayHinter lets an error state the minimum wait before the next retry.
+// Implement it on an error type when the server specifies a wait, as with the
+// Retry-After header of an HTTP 429/503.
 //
-// 判定は errors.As で行われるため、ラップされたエラーでも機能します。
-// RetryAfter が正の値を返すと、次の待機時間は指数バックオフの算出値の代わりに
-// その値になり、以降のバックオフ計算はリセットされます。0 以下の値は無視されます。
-// WithMaxElapsedTime やコンテキストによる打ち切りは通常どおり適用されます。
-// 指示値が WithMaxRetryAfter の上限を超える場合は、待たずに ErrRetryAfterTooLong で
-// 打ち切ります。
+// It is detected with errors.As, so it works on wrapped errors too.
+// When RetryAfter returns a positive value, the next wait is that value
+// instead of the computed exponential backoff, and the backoff schedule is
+// reset afterwards. Values of 0 or less are ignored. WithMaxElapsedTime and
+// context cancellation still apply as usual. When the requested wait exceeds
+// the WithMaxRetryAfter cap, retrying stops with ErrRetryAfterTooLong without
+// waiting.
 type DelayHinter interface {
 	RetryAfter() time.Duration
 }
 
-// settings は Run / RunValue の内部設定です。
+// settings holds the internal configuration of Run / RunValue.
 type settings struct {
 	name                string
 	maxRetries          uint
@@ -63,7 +64,7 @@ type settings struct {
 	notify              NotifyFunc
 }
 
-// Option は Run / RunValue の挙動を調整します。
+// Option adjusts the behaviour of Run / RunValue.
 type Option func(*settings)
 
 func newSettings(opts []Option) *settings {
@@ -73,7 +74,7 @@ func newSettings(opts []Option) *settings {
 		maxInterval:         MaxBackoffInterval,
 		multiplier:          DefaultMultiplier,
 		randomizationFactor: DefaultRandomizationFactor,
-		// 回数ベースのリトライを優先するため、経過時間による打ち切りは既定で無効。
+		// Retries are bounded by count, so the elapsed-time limit is off by default.
 		maxElapsedTime: 0,
 	}
 	for _, opt := range opts {
@@ -84,19 +85,19 @@ func newSettings(opts []Option) *settings {
 	return s
 }
 
-// WithName は操作名を設定します。エラーメッセージに含まれます。
+// WithName sets the operation name, which is included in error messages.
 func WithName(name string) Option {
 	return func(s *settings) { s.name = name }
 }
 
-// WithMaxRetries は初回実行に加えて行うリトライの最大回数を設定します。
-// 0 を指定すると「リトライせず 1 回だけ実行する」という意味になります。
+// WithMaxRetries sets the maximum number of retries on top of the first
+// attempt. 0 means "run once, without retrying".
 func WithMaxRetries(n uint) Option {
 	return func(s *settings) { s.maxRetries = n }
 }
 
-// WithMaxAttempts は初回実行を含めた最大試行回数を設定します。
-// 1 はリトライなしを意味します。0 は 1 として扱われます。
+// WithMaxAttempts sets the maximum number of attempts, including the first.
+// 1 means no retries. 0 is treated as 1.
 func WithMaxAttempts(n uint) Option {
 	return func(s *settings) {
 		if n == 0 {
@@ -106,7 +107,7 @@ func WithMaxAttempts(n uint) Option {
 	}
 }
 
-// WithInitialInterval は初回リトライまでの待機時間を設定します。負値は無視されます。
+// WithInitialInterval sets the wait before the first retry. Negative values are ignored.
 func WithInitialInterval(d time.Duration) Option {
 	return func(s *settings) {
 		if d >= 0 {
@@ -115,7 +116,7 @@ func WithInitialInterval(d time.Duration) Option {
 	}
 }
 
-// WithMaxInterval は待機時間の上限を設定します。負値は無視されます。
+// WithMaxInterval sets the upper bound on the wait. Negative values are ignored.
 func WithMaxInterval(d time.Duration) Option {
 	return func(s *settings) {
 		if d >= 0 {
@@ -124,7 +125,7 @@ func WithMaxInterval(d time.Duration) Option {
 	}
 }
 
-// WithMultiplier は待機時間の増加倍率を設定します。1.0 で固定間隔になります。
+// WithMultiplier sets the growth factor of the wait. 1.0 gives a fixed interval.
 func WithMultiplier(m float64) Option {
 	return func(s *settings) {
 		if m > 0 {
@@ -133,9 +134,9 @@ func WithMultiplier(m float64) Option {
 	}
 }
 
-// WithRandomizationFactor はジッタの大きさを [0, 1] で設定します。
-// 0 を指定するとジッタなし（完全な固定スケジュール）になります。
-// 範囲外の値は無視されます。
+// WithRandomizationFactor sets the amount of jitter in [0, 1].
+// 0 means no jitter (a fully fixed schedule).
+// Out-of-range values are ignored.
 func WithRandomizationFactor(f float64) Option {
 	return func(s *settings) {
 		if f >= 0 && f <= 1 {
@@ -144,9 +145,9 @@ func WithRandomizationFactor(f float64) Option {
 	}
 }
 
-// WithMaxElapsedTime はリトライ全体の経過時間の上限を設定します。
-// 0 を指定すると無効化され、回数とコンテキストのみで打ち切られます（既定）。
-// 負値は無視されます。
+// WithMaxElapsedTime caps the total elapsed time of retrying.
+// 0 disables it, so retries are bounded by count and context only (the default).
+// Negative values are ignored.
 func WithMaxElapsedTime(d time.Duration) Option {
 	return func(s *settings) {
 		if d >= 0 {
@@ -155,13 +156,14 @@ func WithMaxElapsedTime(d time.Duration) Option {
 	}
 }
 
-// WithMaxRetryAfter は、DelayHinter（Retry-After）が示す待機時間の上限を設定します。
-// 指示値がこれを超えた場合は待たずにリトライを打ち切り、ErrRetryAfterTooLong を返します。
-// 0（既定）は上限なしです。
+// WithMaxRetryAfter caps the wait a DelayHinter (Retry-After) may request.
+// When the requested wait exceeds it, retrying stops without waiting and
+// ErrRetryAfterTooLong is returned. 0 (the default) means no cap.
 //
-// 上限を超えたときに切り詰めて待つのではなく打ち切るのは、サーバが「まだ来るな」と
-// 言った時間より早く叩いても同じ応答が返るだけで、呼び出し側に決定を返すほうが
-// 早いためです。指示値そのものは Error.Err（最後のエラー）に残ります。
+// Over the cap it stops rather than clamping the wait, because hitting the
+// server earlier than it said "not yet" only gets the same answer, and handing
+// the decision back to the caller is faster. The requested wait itself stays
+// on Error.Err (the last error).
 func WithMaxRetryAfter(d time.Duration) Option {
 	return func(s *settings) {
 		if d >= 0 {
@@ -170,13 +172,13 @@ func WithMaxRetryAfter(d time.Duration) Option {
 	}
 }
 
-// WithShouldRetry はリトライすべきエラーかどうかの判定関数を設定します。
-// 未設定の場合はすべてのエラーがリトライ対象になります。
+// WithShouldRetry sets the predicate deciding whether an error should be
+// retried. When unset, every error is retried.
 func WithShouldRetry(fn ShouldRetryFunc) Option {
 	return func(s *settings) { s.shouldRetry = fn }
 }
 
-// WithNotify はリトライ直前に呼ばれるフックを設定します。
+// WithNotify sets a hook called just before each retry.
 func WithNotify(fn NotifyFunc) Option {
 	return func(s *settings) { s.notify = fn }
 }

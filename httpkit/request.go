@@ -9,20 +9,21 @@ import (
 	"net/http"
 )
 
-// Send は、組み立て済みのリクエストをリトライ付きで実行します。
-// 手組みの *http.Request もここを通る時点で SSRF 事前検証の対象になります。
+// Send runs a prepared request with retries.
+// A hand-built *http.Request is subject to the SSRF pre-check as it passes
+// through here.
 //
-// 一方で、ヘルパーが内部で付ける共通ヘッダー
-// (User-Agent / sec-ch-ua / Accept-Language) は付きません。必要なら
-// req.Header へ自分で設定してください。
+// The common headers the helpers add internally
+// (User-Agent / sec-ch-ua / Accept-Language) are not added, however. Set them
+// on req.Header yourself if you need them.
 //
-// リトライさせるなら、ボディ付きのリクエストには req.GetBody を設定してください
-// （Post / PostJSON は自動で設定します）。
+// For a request with a body to be retried, set req.GetBody
+// (Post / PostJSON set it automatically).
 func (c *Client) Send(req *http.Request) (*Result, error) {
 	return c.execute(req)
 }
 
-// SendBytes は Send のうちボディだけが必要な場合の糖衣です。
+// SendBytes is sugar over Send for when only the body is needed.
 func (c *Client) SendBytes(req *http.Request) ([]byte, error) {
 	res, err := c.Send(req)
 	if err != nil {
@@ -31,7 +32,7 @@ func (c *Client) SendBytes(req *http.Request) ([]byte, error) {
 	return res.Body, nil
 }
 
-// Get は GET リクエストを送信します。
+// Get sends a GET request.
 func (c *Client) Get(ctx context.Context, url string) (*Result, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -40,7 +41,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Result, error) {
 	return c.execute(req)
 }
 
-// GetBytes は Get のうちボディだけが必要な場合の糖衣です。
+// GetBytes is sugar over Get for when only the body is needed.
 func (c *Client) GetBytes(ctx context.Context, url string) ([]byte, error) {
 	res, err := c.Get(ctx, url)
 	if err != nil {
@@ -49,7 +50,7 @@ func (c *Client) GetBytes(ctx context.Context, url string) ([]byte, error) {
 	return res.Body, nil
 }
 
-// GetJSON は GET して、ボディを JSON としてデコードします。
+// GetJSON sends a GET and decodes the body as JSON.
 func (c *Client) GetJSON(ctx context.Context, url string, v any) error {
 	res, err := c.Get(ctx, url)
 	if err != nil {
@@ -58,9 +59,9 @@ func (c *Client) GetJSON(ctx context.Context, url string, v any) error {
 	return res.DecodeJSON(v)
 }
 
-// Post はバイト配列を POST します。引数の順序は net/http の Client.Post に揃えています。
-// リトライで同じボディを送り直せるよう req.GetBody を設定するので、非冪等な送信では
-// WithoutRetry / WithNoRetry の併用を検討してください。
+// Post POSTs a byte slice. The argument order matches net/http's Client.Post.
+// It sets req.GetBody so a retry can resend the same body; for non-idempotent
+// sends, consider WithoutRetry / WithNoRetry.
 func (c *Client) Post(ctx context.Context, url, contentType string, body []byte) (*Result, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -80,11 +81,11 @@ func (c *Client) Post(ctx context.Context, url, contentType string, body []byte)
 	return c.execute(req)
 }
 
-// PostJSON はデータを JSON として POST します。
+// PostJSON POSTs data as JSON.
 func (c *Client) PostJSON(ctx context.Context, url string, data any) (*Result, error) {
 	requestBody, err := json.Marshal(data)
 	if err != nil {
-		return nil, fmt.Errorf("JSONデータのシリアライズに失敗しました: %w", err)
+		return nil, fmt.Errorf("failed to marshal JSON data: %w", err)
 	}
 	return c.Post(ctx, url, "application/json", requestBody)
 }

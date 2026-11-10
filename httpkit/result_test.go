@@ -23,7 +23,7 @@ func TestResult_ContentType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := tc.res.ContentType(); got != tc.want {
-				t.Errorf("ContentType() = %q, 期待 %q", got, tc.want)
+				t.Errorf("ContentType() = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -39,10 +39,10 @@ func TestResult_DecodeJSON(t *testing.T) {
 
 		var got payload
 		if err := res.DecodeJSON(&got); err != nil {
-			t.Fatalf("予期しないエラー: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
 		if got.Name != "kit" {
-			t.Errorf("Name = %q, 期待 %q", got.Name, "kit")
+			t.Errorf("Name = %q, want %q", got.Name, "kit")
 		}
 	})
 
@@ -52,10 +52,10 @@ func TestResult_DecodeJSON(t *testing.T) {
 		var got payload
 		err := res.DecodeJSON(&got)
 		if err == nil {
-			t.Fatal("204 のような空ボディはデコードエラーになる想定です")
+			t.Fatal("an empty body, as with a 204, should be a decode error")
 		}
-		if !strings.Contains(err.Error(), "JSONデコードに失敗しました") {
-			t.Errorf("エラーメッセージが想定と異なります: %v", err)
+		if !strings.Contains(err.Error(), "failed to decode JSON") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 
@@ -64,7 +64,7 @@ func TestResult_DecodeJSON(t *testing.T) {
 
 		var got payload
 		if err := res.DecodeJSON(&got); err == nil {
-			t.Fatal("nil レシーバはデコードエラーになる想定です")
+			t.Fatal("a nil receiver should be a decode error")
 		}
 	})
 }

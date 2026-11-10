@@ -15,64 +15,66 @@ import (
 )
 
 var (
-	// ErrNilRequest は nil の *http.Request が渡されたことを示します。
+	// ErrNilRequest reports that a nil *http.Request was passed.
 	ErrNilRequest = errors.New("nil HTTP request")
-	// ErrNilResponse は Doer が nil のレスポンスを返したことを示します。
+	// ErrNilResponse reports that the Doer returned a nil response.
 	ErrNilResponse = errors.New("nil HTTP response")
-	// ErrNilResponseBody はレスポンスボディが nil で読み取り不能なことを示します。
+	// ErrNilResponseBody reports that the response body is nil and cannot be read.
 	ErrNilResponseBody = errors.New("nil HTTP response body")
-	// ErrResponseBodyTooLarge はレスポンスボディが許容サイズを超えたことを示します。
+	// ErrResponseBodyTooLarge reports that the response body exceeded the allowed size.
 	ErrResponseBodyTooLarge = errors.New("HTTP response body too large")
-	// ErrRequestBodyNotReplayable はリトライ時にリクエストボディを再構築できないことを示します。
+	// ErrRequestBodyNotReplayable reports that the request body cannot be rebuilt for a retry.
 	ErrRequestBodyNotReplayable = errors.New("HTTP request body is not replayable")
-	// ErrRequestBodyRebuild はリクエストボディの再構築に失敗したことを示します。
+	// ErrRequestBodyRebuild reports that rebuilding the request body failed.
 	ErrRequestBodyRebuild = errors.New("failed to rebuild HTTP request body")
-	// ErrResponseBodyRead はレスポンスボディの読み込みに失敗したことを示します。
+	// ErrResponseBodyRead reports that reading the response body failed.
 	ErrResponseBodyRead = errors.New("failed to read HTTP response body")
 )
 
-// RetryableHTTPError は、リトライで解決しうるHTTPステータスコードエラーを示すカスタムエラー型です。
-// 5xx 系に加え、408 (Request Timeout) と 429 (Too Many Requests) が該当します。
-// Body は MaxErrorBodySize までに切り詰めて保持されます。
+// RetryableHTTPError is an HTTP status error that a retry may resolve: any
+// 5xx, plus 408 (Request Timeout) and 429 (Too Many Requests).
+// Body is kept truncated to MaxErrorBodySize.
 type RetryableHTTPError struct {
 	StatusCode int
 	Body       []byte
-	// RetryAfterDelay は、サーバが Retry-After ヘッダーで指定してきた待機時間です。
-	// ヘッダーが無い・解釈できない場合は 0 です。
+	// RetryAfterDelay is the wait the server requested with a Retry-After
+	// header. It is 0 when the header is absent or cannot be parsed.
 	RetryAfterDelay time.Duration
 }
 
-// RetryableHTTPError が retry.DelayHinter を満たすことを保証します。
-// これにより、リトライ時の待機時間としてサーバ指定の Retry-After が尊重されます。
+// Ensure RetryableHTTPError satisfies retry.DelayHinter, so a server-specified
+// Retry-After is honoured as the wait before a retry.
 var _ retry.DelayHinter = (*RetryableHTTPError)(nil)
 
-// Error は RetryableHTTPError のエラーメッセージを返します。
+// Error returns the error message of a RetryableHTTPError.
 func (e *RetryableHTTPError) Error() string {
-	return formatHTTPError("HTTPエラー (リトライ対象)", e.StatusCode, e.Body)
+	return formatHTTPError("HTTP error (retryable)", e.StatusCode, e.Body)
 }
 
-// RetryAfter は retry.DelayHinter を実装し、次のリトライまで最低限待つべき時間を返します。
-// 正の値を返すと、指数バックオフの算出値の代わりにこの値が待機時間として使われます。
+// RetryAfter implements retry.DelayHinter and returns the minimum wait before
+// the next retry. A positive value is used as the wait in place of the
+// computed exponential backoff.
 func (e *RetryableHTTPError) RetryAfter() time.Duration { return e.RetryAfterDelay }
 
-// NonRetryableHTTPError は、リトライしても解決しないHTTPステータスコードエラー
-// (408/429 を除く 4xx 系など) を示すカスタムエラー型です。
-// Body は MaxErrorBodySize までに切り詰めて保持されます。
+// NonRetryableHTTPError is an HTTP status error that a retry will not resolve
+// (such as a 4xx other than 408/429).
+// Body is kept truncated to MaxErrorBodySize.
 type NonRetryableHTTPError struct {
 	StatusCode int
 	Body       []byte
 }
 
-// Error は NonRetryableHTTPError のエラーメッセージを返します。
+// Error returns the error message of a NonRetryableHTTPError.
 func (e *NonRetryableHTTPError) Error() string {
-	return formatHTTPError("HTTPエラー (非リトライ対象)", e.StatusCode, e.Body)
+	return formatHTTPError("HTTP error (non-retryable)", e.StatusCode, e.Body)
 }
 
-// classifyStatusError は、HTTPステータスコードとレスポンスボディから、
-// リトライ対象/非対象のHTTPエラーを分類します。2xxの場合は nil を返します。
-// ステータスコードの分類ルールを一箇所に集約し、呼び出し側での定義のズレを防ぎます。
-// Body は生のまま MaxErrorBodySize までで保持し、表示用の整形は Error() に任せます。
-// retryAfter はサーバが Retry-After で指定してきた待機時間で、無ければ 0 を渡します。
+// classifyStatusError classifies an HTTP status code and response body into a
+// retryable or non-retryable HTTP error, returning nil for a 2xx.
+// Keeping the status classification in one place stops callers' definitions
+// from drifting apart. Body is kept raw up to MaxErrorBodySize; formatting for
+// display is left to Error(). retryAfter is the wait the server requested with
+// Retry-After, or 0 when there is none.
 func classifyStatusError(statusCode int, body []byte, retryAfter time.Duration) error {
 	if statusCode >= 200 && statusCode < 300 {
 		return nil
@@ -85,14 +87,17 @@ func classifyStatusError(statusCode int, body []byte, retryAfter time.Duration) 
 	return &NonRetryableHTTPError{StatusCode: statusCode, Body: body}
 }
 
-// maxRetryAfterSeconds は time.Duration で表せる秒数の上限です。これより大きい秒数は
-// 掛け算で桁あふれして負や小さな値になるため、ここで頭打ちにします。
+// maxRetryAfterSeconds is the largest number of seconds a time.Duration can
+// hold. Larger values overflow in the multiplication into a negative or small
+// value, so they are saturated here.
 const maxRetryAfterSeconds = int64(math.MaxInt64 / int64(time.Second))
 
-// parseRetryAfter は Retry-After ヘッダー値を待機時間として解釈します。
-// 秒数（非負整数）と HTTP-date の両形式に対応し、解釈できない値・過去の時刻・
-// 空文字は 0（指定なし）として扱います。time.Duration に収まらない秒数は上限値に
-// 切り詰めます（上限に従うか打ち切るかは retry.WithMaxRetryAfter が決めます）。
+// parseRetryAfter parses a Retry-After header value as a wait.
+// Both forms are supported, seconds (a non-negative integer) and HTTP-date; an
+// unparsable value, a time in the past and the empty string are treated as 0
+// (not specified). Seconds that do not fit a time.Duration are saturated at
+// the maximum (whether to honour it or give up is decided by
+// retry.WithMaxRetryAfter).
 func parseRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -118,8 +123,8 @@ func parseRetryAfter(value string) time.Duration {
 	return 0
 }
 
-// isRetryableStatus は、待って再送すれば成功しうるステータスコードかを判定します。
-// 5xx のほか、408 (Request Timeout) と 429 (Too Many Requests) が該当します。
+// isRetryableStatus reports whether the status code may succeed if resent
+// after a wait: any 5xx, plus 408 (Request Timeout) and 429 (Too Many Requests).
 func isRetryableStatus(statusCode int) bool {
 	if statusCode >= 500 && statusCode <= 599 {
 		return true
@@ -127,8 +132,9 @@ func isRetryableStatus(statusCode int) bool {
 	return statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests
 }
 
-// truncateErrorBody は、エラー値に保持するボディを MaxErrorBodySize までに切り詰めます。
-// 切り詰める際はコピーを返し、元の巨大なバッキング配列への参照を残しません。
+// truncateErrorBody truncates the body kept in an error value to
+// MaxErrorBodySize. When it truncates it returns a copy, so no reference to
+// the original, possibly huge, backing array is retained.
 func truncateErrorBody(body []byte) []byte {
 	if len(body) <= MaxErrorBodySize {
 		return body
@@ -136,7 +142,7 @@ func truncateErrorBody(body []byte) []byte {
 	return bytes.Clone(body[:MaxErrorBodySize])
 }
 
-// IsRetryableHTTPError は与えられたエラーがリトライ対象のHTTPエラーであるかを判断します。
+// IsRetryableHTTPError reports whether err is a retryable HTTP error.
 func IsRetryableHTTPError(err error) bool {
 	if err == nil {
 		return false
@@ -145,7 +151,7 @@ func IsRetryableHTTPError(err error) bool {
 	return errors.As(err, &retryable)
 }
 
-// IsNonRetryableError は与えられたエラーが非リトライ対象のHTTPエラーであるかを判断します。
+// IsNonRetryableError reports whether err is a non-retryable HTTP error.
 func IsNonRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -156,9 +162,9 @@ func IsNonRetryableError(err error) bool {
 
 func formatHTTPError(prefix string, statusCode int, body []byte) string {
 	if len(body) > 0 {
-		return fmt.Sprintf("%s: ステータスコード %d, ボディ: %s", prefix, statusCode, formatBodyForError(body))
+		return fmt.Sprintf("%s: status code %d, body: %s", prefix, statusCode, formatBodyForError(body))
 	}
-	return fmt.Sprintf("%s: ステータスコード %d, ボディなし", prefix, statusCode)
+	return fmt.Sprintf("%s: status code %d, no body", prefix, statusCode)
 }
 
 func formatBodyForError(body []byte) string {
@@ -169,7 +175,7 @@ func formatBodyForError(body []byte) string {
 	return strconv.Quote(displayBody)
 }
 
-// truncateAtRuneBoundary は s を最大 maxBytes バイトへ、ルーン境界を壊さずに切り詰めます。
+// truncateAtRuneBoundary truncates s to at most maxBytes bytes without splitting a rune.
 func truncateAtRuneBoundary(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s

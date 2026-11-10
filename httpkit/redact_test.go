@@ -13,35 +13,36 @@ import (
 	"github.com/shouni/go-http-kit/httpkit"
 )
 
-// secretURL は、クエリに秘密を持つ URL です。署名付き URL や `?key=` の API キーの代わりです。
+// secretURL is a URL with a secret in its query, standing in for a signed URL or a `?key=` API key.
 const secretURL = "https://example.com/obj?X-Goog-Signature=topsecret"
 
 var errDial = errors.New("dial failed")
 
-// failingDoer は、http.Client と同じ形（URL をクエリごと抱えた *url.Error）で失敗します。
+// failingDoer fails the same way http.Client does (a *url.Error carrying the URL, query included).
 func failingDoer() httpkit.Doer {
 	return doerFunc(func(req *http.Request) (*http.Response, error) {
 		return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: errDial}
 	})
 }
 
-// assertRedacted は、エラーの文面にクエリの秘密が残っていないことと、
-// 伏せたうえで分類（errors.Is）が保たれていることを検証します。
+// assertRedacted verifies that no query secret remains in the error message
+// and that classification (errors.Is) survives the redaction.
 func assertRedacted(t *testing.T, err error, wantIs error) {
 	t.Helper()
 	if err == nil {
-		t.Fatal("エラーが返らなかった")
+		t.Fatal("no error was returned")
 	}
 	if msg := err.Error(); strings.Contains(msg, "topsecret") {
-		t.Errorf("エラーの文面にクエリの秘密が残っている: %s", msg)
+		t.Errorf("a query secret remains in the error message: %s", msg)
 	}
 	if wantIs != nil && !errors.Is(err, wantIs) {
 		t.Errorf("errors.Is(err, %v) = false: %v", wantIs, err)
 	}
 }
 
-// TestErrorsDoNotLeakQuery は、失敗の文面にリクエスト URL のクエリが出ないことを検証します。
-// エラーはそのままログに出るため、署名や API キーがそこに残ります。
+// TestErrorsDoNotLeakQuery verifies that failure messages do not show the
+// request URL's query. Errors go to logs as they are, so signatures and API
+// keys would be left there.
 func TestErrorsDoNotLeakQuery(t *testing.T) {
 	ctx := context.Background()
 
@@ -50,7 +51,7 @@ func TestErrorsDoNotLeakQuery(t *testing.T) {
 		_, err := client.Get(ctx, secretURL)
 		assertRedacted(t, err, errDial)
 		if !strings.Contains(err.Error(), "https://example.com/obj?REDACTED") {
-			t.Errorf("どこへの呼び出しかが読み取れない: %v", err)
+			t.Errorf("cannot tell which call failed: %v", err)
 		}
 	})
 

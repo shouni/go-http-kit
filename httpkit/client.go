@@ -1,17 +1,19 @@
-// Package httpkit は、リトライ・タイムアウト・SSRF対策済みの安全なトランスポートを
-// 備えたHTTPクライアントと、リクエスト/レスポンスの補助関数を提供します。
+// Package httpkit provides an HTTP client with retries, timeouts and an
+// SSRF-protected transport, plus request/response helpers.
 //
-// # リトライと冪等性
+// # Retries and idempotency
 //
-// リトライ判定はエラーだけで決まり、HTTP メソッドを見ません。POST も GET と同じように
-// 再試行されるため、非冪等な送信は二重実行になり得ます。5xx や読み取りタイムアウトは
-// 「サーバーに届いていない」ことを保証しないので、届いたうえで応答を取りこぼしただけなら、
-// 再送で同じ副作用がもう一度起きます。
+// Whether to retry is decided from the error alone; the HTTP method is not
+// consulted. A POST is retried exactly like a GET, so a non-idempotent send
+// can run twice. A 5xx or a read timeout does not guarantee that the request
+// never reached the server: if it arrived and only the response was lost, the
+// resend repeats the same side effect.
 //
-// メソッドから自動判定しないのは、冪等性が「操作」の性質であって「メソッド」の性質では
-// ないためです。副作用のない POST も、再送したくない DELETE も実在します。宣言するのは
-// 呼び出し側で、再送したくない呼び出しは Client.WithoutRetry で派生させるか、
-// クライアント全体で不要なら WithNoRetry を使ってください。
+// The method is not used to decide automatically because idempotency is a
+// property of the operation, not of the method. POSTs without side effects
+// exist, and so do DELETEs that must not be resent. The caller declares it:
+// derive a client with Client.WithoutRetry for calls that must not be resent,
+// or use WithNoRetry when the whole client should never retry.
 package httpkit
 
 import (
@@ -22,29 +24,32 @@ import (
 	"github.com/shouni/netarmor/securenet"
 )
 
-// RetryConfig はリトライ動作の設定です。
+// RetryConfig configures retry behaviour.
 //
-// MaxRetries は初回実行を除いたリトライ回数です。リトライを切る経路は
-// WithNoRetry / WithMaxRetries(0) が立てる DisableRetry なので、この値が 0 のまま
-// 使われることはありません。各インターバルが 0 なら retry パッケージの既定値です。
+// MaxRetries is the number of retries, not counting the first attempt. Retries
+// are turned off through DisableRetry, which WithNoRetry / WithMaxRetries(0)
+// set, so this value is never used while it is 0. An interval of 0 means the
+// retry package's default.
 type RetryConfig struct {
 	MaxRetries      uint
 	InitialInterval time.Duration
 	MaxInterval     time.Duration
-	// MaxRetryAfter は、サーバが Retry-After で指示した待機時間の上限です。これを超える
-	// 指示は待たずに打ち切ります（retry.ErrRetryAfterTooLong）。0 は上限なしです。
+	// MaxRetryAfter caps the wait a server may request with Retry-After. A
+	// longer request stops retrying instead of waiting
+	// (retry.ErrRetryAfterTooLong). 0 means no cap.
 	MaxRetryAfter time.Duration
 }
 
-// DefaultMaxRetryAfter は Retry-After の指示に従って待つ時間の既定の上限です。
+// DefaultMaxRetryAfter is the default cap on how long a Retry-After header
+// may make the client wait.
 //
-// 上限が無いと、相手サーバが「3600」と返しただけで呼び出し側の ctx が切れるまで
-// 眠り続けます。利用者が入力した URL を叩く用途では、待ち時間を相手に決めさせる
-// ことになります。バックオフの最大間隔（30 秒）の数倍あれば、混雑時の一時的な指示
-// には従えます。
+// Without a cap, a server answering "3600" puts the caller to sleep until its
+// ctx expires; when the URL comes from user input, that lets the remote side
+// choose the wait. A few times the maximum backoff interval (30 seconds) is
+// enough to honour a temporary instruction during congestion.
 const DefaultMaxRetryAfter = 2 * time.Minute
 
-// DefaultRetryConfig は既定のリトライ設定を返します。
+// DefaultRetryConfig returns the default retry configuration.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxRetries:      retry.DefaultMaxRetries,
@@ -54,8 +59,8 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
-// retryOptions は RetryConfig を retry.Option 列に変換します。
-// 0 値のインターバルは指定せず、retry パッケージの既定値に委ねます。
+// retryOptions converts the RetryConfig into retry.Options.
+// Zero intervals are left unset so the retry package's defaults apply.
 func (rc RetryConfig) retryOptions() []retry.Option {
 	opts := []retry.Option{retry.WithMaxRetries(rc.MaxRetries)}
 	if rc.InitialInterval > 0 {
@@ -70,35 +75,36 @@ func (rc RetryConfig) retryOptions() []retry.Option {
 	return opts
 }
 
-// Client はHTTPリクエスト、指数バックオフを用いたリトライ、
-// および SSRF 対策などのネットワーク検証を管理します。
+// Client manages HTTP requests, retries with exponential backoff, and network
+// validation such as SSRF protection.
 type Client struct {
-	httpClient   Doer // バッファリング系リクエストに使う Doer
-	streamClient Doer // ストリーム系リクエストに使う Doer（クライアント全体のタイムアウトなし）
+	httpClient   Doer // Doer for buffered requests
+	streamClient Doer // Doer for streaming requests (no client-wide timeout)
 
 	RetryConfig           RetryConfig
 	SkipNetworkValidation bool
 	DisableRetry          bool
 
-	// Timeout は、既定のクライアントに与えるタイムアウトです。0 以下なら
-	// DefaultHTTPTimeout を使います。WithTimeout で設定します。
+	// Timeout is the timeout given to the default client. A value of 0 or
+	// less means DefaultHTTPTimeout. Set it with WithTimeout.
 	//
-	// ストリーム系のボディ読み取りには掛かりません（newStreamClient を参照）。
-	// 呼び出しごとの締切は ctx で与えてください。ここはその保険です。
+	// It does not apply to body reads on the streaming paths (see
+	// newStreamClient). Give each call its deadline through ctx; this is only
+	// a safety net.
 	Timeout time.Duration
 
-	// MaxBodySize は、バッファリング系メソッドが読み込むレスポンスボディの上限です。
-	// 0 以下の場合は MaxResponseBodySize が使われます。WithMaxResponseBodySize で設定します。
+	// MaxBodySize caps the response body read by the buffered methods. A value
+	// of 0 or less means MaxResponseBodySize. Set it with WithMaxResponseBodySize.
 	MaxBodySize int64
-	// UserAgent は、共通ヘッダーとして送信する User-Agent です。
-	// New では既定で UserAgent 定数が設定されます。空の場合はヘッダーを設定しません。
+	// UserAgent is the User-Agent sent as a common header. New sets it to the
+	// UserAgent constant by default. When empty, the header is not set.
 	UserAgent string
-	// DisableBrowserHeaders が true の場合、sec-ch-ua 系のブラウザ由来ヘッダーを送信しません。
+	// DisableBrowserHeaders, when true, suppresses the browser-style sec-ch-ua headers.
 	DisableBrowserHeaders bool
 }
 
-// New は新しいClientを初期化します。
-// デフォルトで SSRF / DNS Rebinding 対策が有効な SafeHTTPClient が構築されます。
+// New initializes a new Client.
+// By default it builds a SafeHTTPClient with SSRF / DNS rebinding protection.
 func New(options ...ClientOption) *Client {
 	client := &Client{
 		RetryConfig:           DefaultRetryConfig(),
@@ -115,20 +121,21 @@ func New(options ...ClientOption) *Client {
 	return client
 }
 
-// ensureHTTPClient は、httpClient が未設定の場合に、設定に基づいてデフォルトのクライアントを構築します。
-// あわせてストリーム用の streamClient も確定します（分離の理由は newStreamClient を参照）。
+// ensureHTTPClient builds the default client from the settings when httpClient
+// is unset. It also settles streamClient (see newStreamClient for why the two
+// are separate).
 func (c *Client) ensureHTTPClient() {
 	if c.httpClient == nil {
 		timeout := c.timeout()
 
 		var base *http.Client
 		if c.SkipNetworkValidation {
-			// 内部通信などを許可する標準のクライアント。
-			// ResponseHeaderTimeout の設定が DefaultTransport へ波及しないよう clone する。
+			// A standard client that allows internal traffic and the like.
+			// Clone so setting ResponseHeaderTimeout does not leak into DefaultTransport.
 			transport := http.DefaultTransport.(*http.Transport).Clone()
 			base = &http.Client{Transport: transport, Timeout: timeout}
 		} else {
-			// securenet による動的バリデーション（SSRF/DNS Rebinding対策）付きクライアント
+			// A client with securenet's dynamic validation (SSRF / DNS rebinding protection).
 			base = securenet.NewSafeHTTPClient(timeout)
 		}
 		c.httpClient = base
@@ -136,23 +143,24 @@ func (c *Client) ensureHTTPClient() {
 	}
 
 	if c.streamClient == nil {
-		// WithDoer で注入された Doer はストリームにもそのまま使う。
-		// 注入したクライアントの Timeout がボディ読み取りまで及ぶ点は呼び出し側の管理となる。
+		// A Doer injected with WithDoer is used as-is for streaming too. If its
+		// Timeout also covers body reads, that is the caller's to manage.
 		c.streamClient = c.httpClient
 	}
 }
 
-// newStreamClient は、base と Transport（コネクションプール）を共有しつつ、
-// クライアント全体のタイムアウトを外したストリーミング用クライアントを返します。
+// newStreamClient returns a streaming client that shares base's Transport
+// (and so its connection pool) but has no client-wide timeout.
 //
-// http.Client.Timeout はレスポンスボディの読み取り完了までを含むため、ストリームに
-// 適用すると時間のかかるダウンロードが途中で切断されます。代わりにヘッダー受信までを
-// Transport.ResponseHeaderTimeout で制限し、ボディ読み取りの寿命はリクエストの
-// ctx に委ねます。
+// http.Client.Timeout covers reading the response body to completion, so
+// applying it to a stream would cut long downloads off midway. Instead the
+// header phase is bounded with Transport.ResponseHeaderTimeout, and the
+// lifetime of the body read is left to the request's ctx.
 func newStreamClient(base *http.Client, timeout time.Duration) *http.Client {
 	if transport, ok := base.Transport.(*http.Transport); ok && transport.ResponseHeaderTimeout == 0 {
-		// Transport は共有だが、バッファリング側には全体タイムアウトが別途効いており、
-		// ヘッダー受信の期限はそれより長くならないため挙動を狭めない。
+		// The Transport is shared, but the buffered side has its overall timeout
+		// on top, and the header deadline is never longer than that, so this does
+		// not narrow its behaviour.
 		transport.ResponseHeaderTimeout = timeout
 	}
 	return &http.Client{
@@ -162,13 +170,14 @@ func newStreamClient(base *http.Client, timeout time.Duration) *http.Client {
 	}
 }
 
-// Do は Doer インターフェースを実装します。リトライロジックと SSRF 事前検証は
-// 適用されません（デフォルト構成では securenet が接続直前の IP 検証を行います）。
+// Do implements the Doer interface. Neither the retry logic nor the SSRF
+// pre-check is applied (in the default configuration, securenet still checks
+// the IP right before connecting).
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// timeout は、既定のクライアントに与えるタイムアウトを返します。
+// timeout returns the timeout given to the default client.
 func (c *Client) timeout() time.Duration {
 	if c.Timeout > 0 {
 		return c.Timeout
@@ -176,7 +185,7 @@ func (c *Client) timeout() time.Duration {
 	return DefaultHTTPTimeout
 }
 
-// maxBodySize は、バッファリング系メソッドで使うレスポンスボディの上限を返します。
+// maxBodySize returns the response body cap used by the buffered methods.
 func (c *Client) maxBodySize() int64 {
 	if c.MaxBodySize > 0 {
 		return c.MaxBodySize
@@ -184,15 +193,16 @@ func (c *Client) maxBodySize() int64 {
 	return MaxResponseBodySize
 }
 
-// WithoutRetry はリトライを無効にした派生クライアントを返します。
-// 元のクライアントは変更せず、レシーバが nil なら nil を返します。
+// WithoutRetry returns a derived client with retries disabled.
+// The original client is not modified; a nil receiver returns nil.
 //
-// 内部の Doer を共有するため、New をもう一度呼ぶのと違って設定を書き写す必要がなく、
-// TCP コネクションプールも二重に持ちません。Webhook やジョブ投入のように成功のたびに
-// 副作用が生まれる送信で、リトライだけを切る用途を想定しています。
+// Because the internal Doer is shared, there is no configuration to copy over
+// as with a second call to New, and no second TCP connection pool. It is meant
+// for sends where every success has a side effect, such as webhooks or job
+// submission, and only the retries need to go.
 //
-// リトライ判定が HTTP メソッドを見ないこと、そのため再送したくない呼び出しは
-// 呼び出し側が宣言することについては、パッケージのドキュメントを参照してください。
+// See the package documentation for why the retry decision ignores the HTTP
+// method, and why the caller therefore declares which calls must not be resent.
 //
 //	poster := client.WithoutRetry()
 func (c *Client) WithoutRetry() *Client {

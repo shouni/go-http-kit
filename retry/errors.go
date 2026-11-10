@@ -5,43 +5,45 @@ import (
 	"fmt"
 )
 
-// センチネルエラー。呼び出し側は errors.Is で失敗理由を判別できます。
+// Sentinel errors. Callers can tell the reason for a failure with errors.Is.
 //
-// エラーメッセージは Go の慣例に従い英語・小文字・句読点なしで統一しています。
+// Following Go convention, error messages are English, lowercase and without
+// trailing punctuation.
 var (
-	// ErrNilOperation は、nil の Operation が渡された場合に返されます。
+	// ErrNilOperation is returned when a nil Operation is passed.
 	ErrNilOperation = errors.New("retry: operation is nil")
 
-	// ErrExhausted は、最大試行回数に達しても成功しなかったことを示します。
+	// ErrExhausted reports that the maximum number of attempts was reached without success.
 	ErrExhausted = errors.New("retry: attempts exhausted")
 
-	// ErrPermanent は、ShouldRetryFunc が false を返したためリトライを中止したことを示します。
+	// ErrPermanent reports that retrying stopped because ShouldRetryFunc returned false.
 	ErrPermanent = errors.New("retry: permanent error")
 
-	// ErrRetryAfterTooLong は、DelayHinter が示した待機時間が WithMaxRetryAfter の上限を
-	// 超えたためリトライを中止したことを示します。Error.Permanent も true になります。
+	// ErrRetryAfterTooLong reports that retrying stopped because the wait a
+	// DelayHinter requested exceeded the WithMaxRetryAfter cap. Error.Permanent
+	// is also true.
 	ErrRetryAfterTooLong = errors.New("retry: server-requested delay exceeds the limit")
 )
 
-// Error はリトライが失敗したときに返される型付きエラーです。
+// Error is the typed error returned when retrying fails.
 //
-// Unwrap が複数のエラーを返すため、次のいずれの判定も可能です。
+// Unwrap returns several errors, so all of the following checks work:
 //
-//	errors.Is(err, retry.ErrExhausted)      // 最大試行回数に到達した
-//	errors.Is(err, retry.ErrPermanent)      // リトライ不能と判定された
-//	errors.Is(err, context.DeadlineExceeded) // コンテキストがタイムアウトした
-//	errors.Is(err, myOperationError)         // 操作自体が返した最後のエラー
+//	errors.Is(err, retry.ErrExhausted)      // reached the maximum number of attempts
+//	errors.Is(err, retry.ErrPermanent)      // judged not retryable
+//	errors.Is(err, context.DeadlineExceeded) // the context timed out
+//	errors.Is(err, myOperationError)         // the last error the operation itself returned
 type Error struct {
-	// Op は操作名です。空文字の場合は "operation" として表示されます。
+	// Op is the operation name. When empty it is shown as "operation".
 	Op string
-	// Attempts は実際に操作を実行した回数です（初回実行を含む）。
+	// Attempts is the number of times the operation actually ran (including the first).
 	Attempts uint
-	// Permanent は ShouldRetryFunc が false を返して中止したかどうかを示します。
+	// Permanent reports whether retrying stopped because ShouldRetryFunc returned false.
 	Permanent bool
-	// Err は操作が最後に返したエラーです。
+	// Err is the last error the operation returned.
 	Err error
-	// Cause はコンテキストが終了していた場合にその原因を保持します。
-	// リトライがコンテキスト以外の理由で終了した場合は nil です。
+	// Cause holds the reason the context ended, if it did.
+	// It is nil when retrying ended for a reason other than the context.
 	Cause error
 }
 
@@ -59,7 +61,7 @@ func (e *Error) Error() string {
 	}
 }
 
-// Unwrap は操作エラー・コンテキスト原因・分類用センチネルをまとめて返します。
+// Unwrap returns the operation error, the context cause and the classifying sentinel together.
 func (e *Error) Unwrap() []error {
 	errs := make([]error, 0, 3)
 	if e.Err != nil {

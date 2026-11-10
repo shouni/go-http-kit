@@ -17,7 +17,7 @@ func (f doerFunc) Do(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-// newTestClient はテストが実際のバックオフ待ちを踏まない設定で Client を作成します。
+// newTestClient creates a Client configured so tests never sit through a real backoff wait.
 func newTestClient(server *httptest.Server) *Client {
 	return New(WithTimeout(1*time.Second), WithDoer(server.Client()),
 		WithSkipNetworkValidation(true),
@@ -49,16 +49,16 @@ func TestReadStream(t *testing.T) {
 		err := c.ReadStream(context.Background(), server.URL, func(rc io.Reader) error {
 			data, err := io.ReadAll(rc)
 			if err != nil {
-				t.Fatalf("ストリームの読み込みに失敗しました: %v", err)
+				t.Fatalf("failed to read stream: %v", err)
 			}
 
 			if string(data) != "stream-data" {
-				t.Errorf("data = %q, 期待 %q", data, "stream-data")
+				t.Errorf("data = %q, want %q", data, "stream-data")
 			}
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("FetchStreamで予期せぬエラーが発生しました: %v", err)
+			t.Fatalf("unexpected error from ReadStream: %v", err)
 		}
 	})
 
@@ -74,20 +74,20 @@ func TestReadStream(t *testing.T) {
 			return nil
 		})
 		if err == nil {
-			t.Error("5xxエラー時にエラーが返ることを期待していましたがnilでした")
+			t.Error("want an error on a 5xx, got nil")
 		}
 	})
 }
 
-// TestGetStream_NotKilledByClientTimeout は、クライアント全体のタイムアウトより
-// 長くかかるストリーム読み取りが途中で切断されないことを検証します。
-// http.Client.Timeout はボディ読み取りまで含むため、ストリームには全体タイムアウトの
-// ない streamClient を使う必要があります。
+// TestGetStream_NotKilledByClientTimeout verifies that a stream read taking
+// longer than the client-wide timeout is not cut off midway.
+// http.Client.Timeout covers body reads, so streams need a streamClient
+// without an overall timeout.
 func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			t.Errorf("ResponseWriter が http.Flusher を実装していません")
+			t.Errorf("ResponseWriter does not implement http.Flusher")
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -99,21 +99,21 @@ func TestGetStream_NotKilledByClientTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// 全体タイムアウト 150ms のクライアント。ボディの読み取りには 300ms 以上かかる。
+	// A client with a 150ms overall timeout; reading the body takes 300ms or more.
 	c := New(WithTimeout(150*time.Millisecond), WithSkipNetworkValidation(true), WithNoRetry())
 
 	rc, err := c.GetStream(context.Background(), server.URL)
 	if err != nil {
-		t.Fatalf("予期しないエラー: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
-		t.Fatalf("ストリームがクライアント全体のタイムアウトで切断されています: %v", err)
+		t.Fatalf("the stream was cut off by the client-wide timeout: %v", err)
 	}
 	if string(data) != "chunkchunkchunk" {
-		t.Errorf("data = %q, 期待 %q", data, "chunkchunkchunk")
+		t.Errorf("data = %q, want %q", data, "chunkchunkchunk")
 	}
 }
 
@@ -122,7 +122,7 @@ func TestCheckResponseStatus(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusInternalServerError}
 		err := checkResponseStatus(resp)
 		if !errors.Is(err, ErrNilResponseBody) {
-			t.Errorf("err = %v, 期待 %v", err, ErrNilResponseBody)
+			t.Errorf("err = %v, want %v", err, ErrNilResponseBody)
 		}
 	})
 
@@ -145,10 +145,10 @@ func TestCheckResponseStatus(t *testing.T) {
 			}
 			err := checkResponseStatus(resp)
 			if tt.wantErr && err == nil {
-				t.Errorf("checkResponseStatus(%d) = nil, エラーを期待", tt.statusCode)
+				t.Errorf("checkResponseStatus(%d) = nil, want an error", tt.statusCode)
 			}
 			if !tt.wantErr && err != nil {
-				t.Errorf("checkResponseStatus(%d) = %v, 期待 nil", tt.statusCode, err)
+				t.Errorf("checkResponseStatus(%d) = %v, want nil", tt.statusCode, err)
 			}
 		})
 	}
@@ -157,7 +157,7 @@ func TestCheckResponseStatus(t *testing.T) {
 func TestSendStream_NilResponseSafety(t *testing.T) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", nil)
 	if err != nil {
-		t.Fatalf("リクエストの生成に失敗しました: %v", err)
+		t.Fatalf("failed to create request: %v", err)
 	}
 
 	t.Run("NilResponse", func(t *testing.T) {
@@ -167,10 +167,10 @@ func TestSendStream_NilResponseSafety(t *testing.T) {
 
 		rc, err := c.SendStream(req)
 		if rc != nil {
-			t.Errorf("rc = %v, 期待 nil", rc)
+			t.Errorf("rc = %v, want nil", rc)
 		}
 		if !errors.Is(err, ErrNilResponse) {
-			t.Errorf("err = %v, 期待 %v", err, ErrNilResponse)
+			t.Errorf("err = %v, want %v", err, ErrNilResponse)
 		}
 	})
 
@@ -181,10 +181,10 @@ func TestSendStream_NilResponseSafety(t *testing.T) {
 
 		rc, err := c.SendStream(req)
 		if rc != nil {
-			t.Errorf("rc = %v, 期待 nil", rc)
+			t.Errorf("rc = %v, want nil", rc)
 		}
 		if !errors.Is(err, ErrNilResponseBody) {
-			t.Errorf("err = %v, 期待 %v", err, ErrNilResponseBody)
+			t.Errorf("err = %v, want %v", err, ErrNilResponseBody)
 		}
 	})
 
@@ -196,10 +196,10 @@ func TestSendStream_NilResponseSafety(t *testing.T) {
 
 		rc, err := c.SendStream(req)
 		if rc != nil {
-			t.Errorf("rc = %v, 期待 nil", rc)
+			t.Errorf("rc = %v, want nil", rc)
 		}
 		if !errors.Is(err, wantErr) {
-			t.Errorf("err = %v, 期待 %v", err, wantErr)
+			t.Errorf("err = %v, want %v", err, wantErr)
 		}
 	})
 }

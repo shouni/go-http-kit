@@ -19,7 +19,7 @@ func TestParseRetryAfter(t *testing.T) {
 		{"空文字は指定なし", "", 0},
 		{"解釈できない値は指定なし", "soon", 0},
 		{"過去のHTTP-dateは指定なし", "Mon, 02 Jan 2006 15:04:05 GMT", 0},
-		// time.Duration に収まらない秒数は、負や小さな値に化けさせず上限に切り詰める。
+		// Seconds that do not fit a time.Duration saturate at the cap instead of turning negative or small.
 		{"Durationの上限を超える秒数", "9223372037", time.Duration(maxRetryAfterSeconds) * time.Second},
 		{"int64を超える秒数", "99999999999999999999", time.Duration(maxRetryAfterSeconds) * time.Second},
 		{"int64を下回る秒数は指定なし", "-99999999999999999999", 0},
@@ -28,7 +28,7 @@ func TestParseRetryAfter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := parseRetryAfter(tt.value); got != tt.want {
-				t.Errorf("parseRetryAfter(%q) = %v, 期待 %v", tt.value, got, tt.want)
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
 	}
@@ -37,7 +37,7 @@ func TestParseRetryAfter(t *testing.T) {
 		future := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
 		got := parseRetryAfter(future)
 		if got <= 80*time.Second || got > 90*time.Second {
-			t.Errorf("parseRetryAfter = %v, 期待 (80s, 90s]", got)
+			t.Errorf("parseRetryAfter = %v, want (80s, 90s]", got)
 		}
 	})
 }

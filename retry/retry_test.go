@@ -12,8 +12,8 @@ import (
 	"github.com/shouni/go-http-kit/retry"
 )
 
-// 短めのインターバルでテストを高速化する。
-// 既定値 (5s/30s) に依存するテストを書かないこと。
+// Short intervals keep the tests fast.
+// Do not write tests that depend on the defaults (5s/30s).
 func fastOpts(extra ...retry.Option) []retry.Option {
 	return append([]retry.Option{
 		retry.WithMaxRetries(2),
@@ -38,10 +38,10 @@ func TestRun(t *testing.T) {
 			}, fastOpts()...)
 
 			if err != nil {
-				t.Fatalf("期待しないエラーが発生しました: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if calls != 2 {
-				t.Errorf("リトライ回数が不正です: 期待 2, 実績 %d", calls)
+				t.Errorf("retry count: want 2, got %d", calls)
 			}
 		})
 	})
@@ -56,28 +56,28 @@ func TestRun(t *testing.T) {
 			}, fastOpts(retry.WithName("TestOp"))...)
 
 			if !errors.Is(err, retry.ErrExhausted) {
-				t.Errorf("ErrExhausted を期待していましたが、異なります: %v", err)
+				t.Errorf("want ErrExhausted, got: %v", err)
 			}
 			if !errors.Is(err, errExpected) {
-				t.Errorf("元のエラーがラップされていません: %v", err)
+				t.Errorf("the original error is not wrapped: %v", err)
 			}
 			if !strings.Contains(err.Error(), "TestOp") {
-				t.Errorf("操作名がエラーメッセージに含まれていません: %v", err)
+				t.Errorf("the operation name is missing from the error message: %v", err)
 			}
-			// 初回(1) + リトライ(2) = 計3回
+			// first (1) + retries (2) = 3 in total
 			if calls != 3 {
-				t.Errorf("試行回数が不正です: 期待 3, 実績 %d", calls)
+				t.Errorf("attempt count: want 3, got %d", calls)
 			}
 
 			re, ok := errors.AsType[*retry.Error](err)
 			if !ok {
-				t.Fatalf("*retry.Error を期待していましたが、異なります: %v", err)
+				t.Fatalf("want *retry.Error, got: %v", err)
 			}
 			if re.Attempts != 3 {
-				t.Errorf("Attempts が不正です: 期待 3, 実績 %d", re.Attempts)
+				t.Errorf("Attempts: want 3, got %d", re.Attempts)
 			}
 			if re.Permanent {
-				t.Error("Permanent は false であるべきです")
+				t.Error("Permanent should be false")
 			}
 		})
 	})
@@ -95,16 +95,16 @@ func TestRun(t *testing.T) {
 		}, fastOpts(retry.WithShouldRetry(shouldRetry))...)
 
 		if !errors.Is(err, retry.ErrPermanent) {
-			t.Errorf("ErrPermanent を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrPermanent, got: %v", err)
 		}
 		if errors.Is(err, retry.ErrExhausted) {
-			t.Error("永続的エラーでは ErrExhausted になってはいけません")
+			t.Error("a permanent error must not be ErrExhausted")
 		}
 		if !errors.Is(err, fatalErr) {
-			t.Errorf("元のエラーがラップされていません: %v", err)
+			t.Errorf("the original error is not wrapped: %v", err)
 		}
 		if calls != 1 {
-			t.Errorf("即座に中断されるべきですが、%d 回実行されました", calls)
+			t.Errorf("should stop immediately, but ran %d times", calls)
 		}
 	})
 
@@ -116,15 +116,15 @@ func TestRun(t *testing.T) {
 		err := retry.Run(cancelCtx, func() error { return opErr }, fastOpts()...)
 
 		if !errors.Is(err, context.Canceled) {
-			t.Errorf("context.Canceled を期待していましたが、異なります: %v", err)
+			t.Errorf("want context.Canceled, got: %v", err)
 		}
-		// 打ち切り理由と最後の操作エラーの両方を *Error 側で
-		// 保持できていることを確認する。
+		// Check that *Error keeps both the reason it stopped and the last
+		// operation error.
 		if !errors.Is(err, opErr) {
-			t.Errorf("最後の操作エラーが失われています: %v", err)
+			t.Errorf("the last operation error was lost: %v", err)
 		}
 		if errors.Is(err, retry.ErrExhausted) {
-			t.Error("コンテキスト中断では ErrExhausted になってはいけません")
+			t.Error("a context cancellation must not be ErrExhausted")
 		}
 	})
 
@@ -136,7 +136,7 @@ func TestRun(t *testing.T) {
 		err := retry.Run(cancelCtx, func() error { return errors.New("any error") }, fastOpts()...)
 
 		if !errors.Is(err, causeErr) {
-			t.Errorf("context.Cause が伝播していません: %v", err)
+			t.Errorf("context.Cause was not propagated: %v", err)
 		}
 	})
 
@@ -153,7 +153,7 @@ func TestRun(t *testing.T) {
 			)
 
 			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Errorf("context.DeadlineExceeded を期待していましたが、異なります: %v", err)
+				t.Errorf("want context.DeadlineExceeded, got: %v", err)
 			}
 		})
 	})
@@ -166,10 +166,10 @@ func TestRun(t *testing.T) {
 		}, retry.WithMaxRetries(0), retry.WithInitialInterval(time.Millisecond))
 
 		if calls != 1 {
-			t.Errorf("試行回数が不正です: 期待 1, 実績 %d", calls)
+			t.Errorf("attempt count: want 1, got %d", calls)
 		}
 		if !errors.Is(err, retry.ErrExhausted) {
-			t.Errorf("ErrExhausted を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrExhausted, got: %v", err)
 		}
 	})
 
@@ -183,7 +183,7 @@ func TestRun(t *testing.T) {
 				retry.WithRandomizationFactor(0))
 
 			if calls != 2 {
-				t.Errorf("試行回数が不正です: 期待 2, 実績 %d", calls)
+				t.Errorf("attempt count: want 2, got %d", calls)
 			}
 		})
 	})
@@ -196,7 +196,7 @@ func TestRun(t *testing.T) {
 		}, retry.WithMaxAttempts(0), retry.WithInitialInterval(time.Millisecond))
 
 		if calls != 1 {
-			t.Errorf("試行回数が不正です: 期待 1, 実績 %d", calls)
+			t.Errorf("attempt count: want 1, got %d", calls)
 		}
 	})
 
@@ -211,16 +211,16 @@ func TestRun(t *testing.T) {
 					waits = append(waits, next)
 				}))...)
 
-			// 3回試行 = リトライ前の通知は2回
+			// 3 attempts = 2 notifications before retries
 			if len(attempts) != 2 {
-				t.Fatalf("通知回数が不正です: 期待 2, 実績 %d", len(attempts))
+				t.Fatalf("notification count: want 2, got %d", len(attempts))
 			}
 			if attempts[0] != 1 || attempts[1] != 2 {
-				t.Errorf("attempt の値が不正です: %v", attempts)
+				t.Errorf("wrong attempt values: %v", attempts)
 			}
 			for i, w := range waits {
 				if w <= 0 {
-					t.Errorf("待機時間が不正です (index %d): %v", i, w)
+					t.Errorf("wrong wait (index %d): %v", i, w)
 				}
 			}
 		})
@@ -242,13 +242,13 @@ func TestRun(t *testing.T) {
 			)
 
 			if len(waits) != 2 {
-				t.Fatalf("通知回数が不正です: 期待 2, 実績 %d", len(waits))
+				t.Fatalf("notification count: want 2, got %d", len(waits))
 			}
 			if waits[0] != 10*time.Millisecond {
-				t.Errorf("初回の待機時間が不正です: %v", waits[0])
+				t.Errorf("wrong first wait: %v", waits[0])
 			}
 			if waits[1] != 20*time.Millisecond {
-				t.Errorf("Multiplier が適用されていません: %v", waits[1])
+				t.Errorf("Multiplier was not applied: %v", waits[1])
 			}
 		})
 	})
@@ -268,40 +268,41 @@ func TestRun(t *testing.T) {
 				retry.WithMaxElapsedTime(50*time.Millisecond),
 			)
 
-			// 仮想時計なので回数が一意に決まる。20ms 間隔で 0ms / 20ms / 40ms に実行し、
-			// 次は 60ms で MaxElapsedTime(50ms) を越えるため 3 回で止まる。
+			// The fake clock makes the count deterministic: runs at 0ms / 20ms / 40ms
+			// with a 20ms interval, and the next one at 60ms would pass
+			// MaxElapsedTime (50ms), so it stops after 3.
 			if calls != 3 {
-				t.Errorf("経過時間で打ち切られていません: %d 回実行されました, want 3", calls)
+				t.Errorf("not stopped by elapsed time: ran %d times, want 3", calls)
 			}
-			// 経過時間による打ち切りも「打ち切り」として ErrExhausted に分類する。
+			// Stopping on elapsed time is also classified as ErrExhausted.
 			if !errors.Is(err, retry.ErrExhausted) {
-				t.Errorf("ErrExhausted を期待していましたが、異なります: %v", err)
+				t.Errorf("want ErrExhausted, got: %v", err)
 			}
 			if !errors.Is(err, opErr) {
-				t.Errorf("最後の操作エラーが失われています: %v", err)
+				t.Errorf("the last operation error was lost: %v", err)
 			}
 			if errors.Is(err, retry.ErrPermanent) {
-				t.Errorf("ErrPermanent になってはいけません: %v", err)
+				t.Errorf("must not be ErrPermanent: %v", err)
 			}
 		})
 	})
 
 	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
 		if err := retry.Run(ctx, nil); !errors.Is(err, retry.ErrNilOperation) {
-			t.Errorf("ErrNilOperation を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 
 	t.Run("nil context は Background として扱われること", func(t *testing.T) {
-		// 誤って nil を渡されても panic しないことの確認。
+		// Check that passing nil by mistake does not panic.
 		var nilCtx context.Context
 		if err := retry.Run(nilCtx, func() error { return nil }); err != nil {
-			t.Errorf("期待しないエラーが発生しました: %v", err)
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }
 
-// rateLimitedError は DelayHinter を実装するテスト用エラーです。
+// rateLimitedError is a test error implementing DelayHinter.
 type rateLimitedError struct{ after time.Duration }
 
 func (e *rateLimitedError) Error() string             { return "rate limited" }
@@ -322,10 +323,10 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if calls != 1 {
-				t.Errorf("試行回数 = %d, 期待 1", calls)
+				t.Errorf("attempts = %d, want 1", calls)
 			}
 			if waited := time.Since(start); waited != 0 {
-				t.Errorf("打ち切るべきところで %v 待ちました", waited)
+				t.Errorf("waited %v where it should have given up", waited)
 			}
 			if !errors.Is(err, retry.ErrRetryAfterTooLong) {
 				t.Errorf("errors.Is(err, ErrRetryAfterTooLong) = false: %v", err)
@@ -334,7 +335,7 @@ func TestRetryAfterHint(t *testing.T) {
 				t.Errorf("errors.Is(err, ErrPermanent) = false: %v", err)
 			}
 			if !errors.Is(err, hinted) {
-				t.Errorf("元のエラーが失われています: %v", err)
+				t.Errorf("the original error was lost: %v", err)
 			}
 		})
 	})
@@ -353,7 +354,7 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if len(waits) != 1 || waits[0] != 40*time.Millisecond {
-				t.Errorf("待機時間 = %v, 期待 [40ms]", waits)
+				t.Errorf("waits = %v, want [40ms]", waits)
 			}
 		})
 	})
@@ -373,10 +374,10 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if len(waits) != 1 {
-				t.Fatalf("通知回数が不正です: 期待 1, 実績 %d", len(waits))
+				t.Fatalf("notification count: want 1, got %d", len(waits))
 			}
 			if waits[0] != 80*time.Millisecond {
-				t.Errorf("ヒントが待機時間に反映されていません: %v", waits[0])
+				t.Errorf("the hint was not used as the wait: %v", waits[0])
 			}
 		})
 	})
@@ -396,7 +397,7 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if len(waits) != 1 || waits[0] != 60*time.Millisecond {
-				t.Errorf("ラップされたヒントが反映されていません: %v", waits)
+				t.Errorf("the wrapped hint was not used: %v", waits)
 			}
 		})
 	})
@@ -416,7 +417,7 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if len(waits) != 1 || waits[0] != 10*time.Millisecond {
-				t.Errorf("0のヒントは無視されるべきです: %v", waits)
+				t.Errorf("a hint of 0 should be ignored: %v", waits)
 			}
 		})
 	})
@@ -436,14 +437,14 @@ func TestRetryAfterHint(t *testing.T) {
 			)
 
 			if len(notified) != 1 || !errors.Is(notified[0], hinted) {
-				t.Errorf("フックに元のエラーが渡っていません: %v", notified)
+				t.Errorf("the hook did not receive the original error: %v", notified)
 			}
 			re, ok := errors.AsType[*retry.Error](err)
 			if !ok {
-				t.Fatalf("*retry.Error を期待していましたが、異なります: %v", err)
+				t.Fatalf("want *retry.Error, got: %v", err)
 			}
-			if re.Err != hinted { //nolint:errorlint // 連結表現でなく元のエラーそのものであることの検証
-				t.Errorf("Error.Err が元のエラーではありません: %v", re.Err)
+			if re.Err != hinted { //nolint:errorlint // checks it is the original error itself, not a wrapped form
+				t.Errorf("Error.Err is not the original error: %v", re.Err)
 			}
 		})
 	})
@@ -460,10 +461,10 @@ func TestRetryAfterHint(t *testing.T) {
 		)
 
 		if calls != 1 {
-			t.Errorf("即座に中断されるべきですが、%d 回実行されました", calls)
+			t.Errorf("should stop immediately, but ran %d times", calls)
 		}
 		if !errors.Is(err, retry.ErrPermanent) {
-			t.Errorf("ErrPermanent を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrPermanent, got: %v", err)
 		}
 	})
 }
@@ -480,10 +481,10 @@ func TestRunCtx(t *testing.T) {
 		})
 
 		if err != nil {
-			t.Errorf("期待しないエラーが発生しました: %v", err)
+			t.Errorf("unexpected error: %v", err)
 		}
 		if got != "marker" {
-			t.Errorf("ctx が渡されていません: %v", got)
+			t.Errorf("ctx was not passed: %v", got)
 		}
 	})
 
@@ -506,17 +507,17 @@ func TestRunCtx(t *testing.T) {
 			}, fastOpts(retry.WithMaxRetries(10))...)
 
 			if calls != 2 {
-				t.Errorf("試行回数が不正です: 期待 2, 実績 %d", calls)
+				t.Errorf("attempt count: want 2, got %d", calls)
 			}
 			if !errors.Is(err, context.Canceled) {
-				t.Errorf("context.Canceled を期待していましたが、異なります: %v", err)
+				t.Errorf("want context.Canceled, got: %v", err)
 			}
 		})
 	})
 
 	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
 		if err := retry.RunCtx(context.Background(), nil); !errors.Is(err, retry.ErrNilOperation) {
-			t.Errorf("ErrNilOperation を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 
@@ -524,12 +525,12 @@ func TestRunCtx(t *testing.T) {
 		var nilCtx context.Context
 		err := retry.RunCtx(nilCtx, func(ctx context.Context) error {
 			if ctx == nil {
-				t.Error("操作に nil の ctx が渡されました")
+				t.Error("the operation received a nil ctx")
 			}
 			return nil
 		})
 		if err != nil {
-			t.Errorf("期待しないエラーが発生しました: %v", err)
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }
@@ -547,10 +548,10 @@ func TestRunValueCtx(t *testing.T) {
 			}, fastOpts()...)
 
 			if err != nil {
-				t.Errorf("期待しないエラーが発生しました: %v", err)
+				t.Errorf("unexpected error: %v", err)
 			}
 			if got != 42 {
-				t.Errorf("値が不正です: 期待 42, 実績 %d", got)
+				t.Errorf("value: want 42, got %d", got)
 			}
 		})
 	})
@@ -558,7 +559,7 @@ func TestRunValueCtx(t *testing.T) {
 	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
 		_, err := retry.RunValueCtx[int](context.Background(), nil)
 		if !errors.Is(err, retry.ErrNilOperation) {
-			t.Errorf("ErrNilOperation を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 }
@@ -578,10 +579,10 @@ func TestRunValue(t *testing.T) {
 			}, fastOpts()...)
 
 			if err != nil {
-				t.Fatalf("期待しないエラーが発生しました: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != "ok" {
-				t.Errorf("戻り値が不正です: 期待 \"ok\", 実績 %q", got)
+				t.Errorf("return value: want \"ok\", got %q", got)
 			}
 		})
 	})
@@ -593,10 +594,10 @@ func TestRunValue(t *testing.T) {
 			}, fastOpts()...)
 
 			if got != 0 {
-				t.Errorf("ゼロ値を期待していましたが、実績 %d", got)
+				t.Errorf("want the zero value, got %d", got)
 			}
 			if !errors.Is(err, retry.ErrExhausted) {
-				t.Errorf("ErrExhausted を期待していましたが、異なります: %v", err)
+				t.Errorf("want ErrExhausted, got: %v", err)
 			}
 		})
 	})
@@ -604,7 +605,7 @@ func TestRunValue(t *testing.T) {
 	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
 		_, err := retry.RunValue[int](ctx, nil)
 		if !errors.Is(err, retry.ErrNilOperation) {
-			t.Errorf("ErrNilOperation を期待していましたが、異なります: %v", err)
+			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 }
@@ -626,7 +627,7 @@ func TestErrorFormatting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if !strings.Contains(tt.err.Error(), tt.want) {
-				t.Errorf("メッセージに %q が含まれていません: %s", tt.want, tt.err.Error())
+				t.Errorf("message does not contain %q: %s", tt.want, tt.err.Error())
 			}
 		})
 	}

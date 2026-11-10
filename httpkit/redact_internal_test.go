@@ -31,8 +31,9 @@ func TestRedactURLString(t *testing.T) {
 	}
 }
 
-// TestRedactURLErrorDoesNotMutateOriginal は、伏せるときに元のエラー値を書き換えない
-// ことを検証します。注入された Doer が同じ値を返し続けても、2 回目以降が壊れません。
+// TestRedactURLErrorDoesNotMutateOriginal verifies that redaction does not
+// modify the original error value, so an injected Doer that keeps returning
+// the same value does not break on the second and later calls.
 func TestRedactURLErrorDoesNotMutateOriginal(t *testing.T) {
 	sentinel := errors.New("dial failed")
 	orig := &url.Error{Op: "Get", URL: "https://example.com/a?token=secret", Err: sentinel}
@@ -40,13 +41,13 @@ func TestRedactURLErrorDoesNotMutateOriginal(t *testing.T) {
 	got := redactURLError(orig)
 
 	if orig.URL != "https://example.com/a?token=secret" {
-		t.Errorf("元のエラーの URL が書き換えられた: %q", orig.URL)
+		t.Errorf("the original error's URL was modified: %q", orig.URL)
 	}
 	var ue *url.Error
 	if !errors.As(got, &ue) || ue.URL != "https://example.com/a?REDACTED" {
 		t.Errorf("redactURLError() = %v, want URL https://example.com/a?REDACTED", got)
 	}
 	if !errors.Is(got, sentinel) {
-		t.Errorf("redactURLError() が内側のエラーを失った: %v", got)
+		t.Errorf("redactURLError() lost the inner error: %v", got)
 	}
 }
