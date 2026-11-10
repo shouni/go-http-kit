@@ -4,34 +4,35 @@ import (
 	"time"
 )
 
-// ClientOption はClientの設定を行うための関数型です。
+// ClientOption is a function that configures a Client.
 type ClientOption func(*Client)
 
-// WithTimeout は、既定のクライアントに与えるタイムアウトを設定します。
-// 省略時と 0 以下の値では DefaultHTTPTimeout を使います。
+// WithTimeout sets the timeout given to the default client.
+// When omitted, or for a value of 0 or less, DefaultHTTPTimeout is used.
 //
-// ストリーム系ではヘッダー受信までの制限として使われ、ボディ読み取りには掛かりません。
-// 呼び出しごとの締切は ctx で与えてください。
+// On the streaming paths it bounds only the wait for response headers, not
+// body reads. Give each call its deadline through ctx.
 func WithTimeout(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.Timeout = d
 	}
 }
 
-// WithDoer はカスタムの Doer を設定します。モックの注入や既存の http.Client の
-// 再利用に使います。注入した Doer はストリーム系にもそのまま使われるため、
-// その Timeout はストリームのボディ読み取りにも及びます。
+// WithDoer sets a custom Doer, for injecting a mock or reusing an existing
+// http.Client. The injected Doer is used as-is on the streaming paths too, so
+// its Timeout also applies to stream body reads.
 //
-// これを渡しただけでは URL の事前検証は外れません。localhost や private IP が相手なら
-// WithSkipNetworkValidation(true) も添えてください。
+// Passing it does not turn off URL pre-validation. When the target is
+// localhost or a private IP, add WithSkipNetworkValidation(true) as well.
 func WithDoer(client Doer) ClientOption {
 	return func(c *Client) {
 		c.httpClient = client
 	}
 }
 
-// WithMaxRetries は最大リトライ回数を設定します。0 は WithNoRetry と同じで、
-// 1 以上は先行オプションで無効化されていてもリトライを有効に戻します。
+// WithMaxRetries sets the maximum number of retries. 0 is the same as
+// WithNoRetry; 1 or more re-enables retries even if an earlier option
+// disabled them.
 func WithMaxRetries(maxRetries uint) ClientOption {
 	return func(c *Client) {
 		if maxRetries == 0 {
@@ -43,38 +44,40 @@ func WithMaxRetries(maxRetries uint) ClientOption {
 	}
 }
 
-// WithNoRetry はリトライを完全に無効化します。ジョブ投入のような非冪等な操作で、
-// リトライが二重実行になるのを避けるために使います。
+// WithNoRetry disables retries entirely. Use it for non-idempotent operations
+// such as job submission, so a retry cannot run them twice.
 func WithNoRetry() ClientOption {
 	return func(c *Client) {
 		c.DisableRetry = true
 	}
 }
 
-// WithInitialInterval はリトライの初期間隔を設定します。
+// WithInitialInterval sets the initial retry interval.
 func WithInitialInterval(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.RetryConfig.InitialInterval = d
 	}
 }
 
-// WithMaxInterval はリトライの最大間隔を設定します。
+// WithMaxInterval sets the maximum retry interval.
 func WithMaxInterval(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.RetryConfig.MaxInterval = d
 	}
 }
 
-// WithMaxRetryAfter は、サーバが Retry-After で指示した待機時間の上限を設定します。
-// これを超える指示は待たずに打ち切ります。0 は上限なしです。既定は DefaultMaxRetryAfter です。
+// WithMaxRetryAfter caps the wait a server may request with Retry-After.
+// A longer request stops retrying instead of waiting. 0 means no cap. The
+// default is DefaultMaxRetryAfter.
 func WithMaxRetryAfter(d time.Duration) ClientOption {
 	return func(c *Client) {
 		c.RetryConfig.MaxRetryAfter = d
 	}
 }
 
-// WithMaxResponseBodySize は、バッファリング系が読み込むレスポンスボディの上限を
-// クライアント単位で設定します。0 以下は無視し、既定の MaxResponseBodySize を使います。
+// WithMaxResponseBodySize sets, per client, the cap on the response body read
+// by the buffered methods. A value of 0 or less is ignored and the default
+// MaxResponseBodySize is used.
 func WithMaxResponseBodySize(n int64) ClientOption {
 	return func(c *Client) {
 		if n > 0 {
@@ -83,28 +86,30 @@ func WithMaxResponseBodySize(n int64) ClientOption {
 	}
 }
 
-// WithUserAgent は、共通ヘッダーとして送信する User-Agent を設定します。
-// 既定はブラウザ互換の UserAgent 定数で、"my-service/1.0" のように名乗り直せます。
-// 空文字を渡すとヘッダー自体を設定しません（Go 標準の既定値が送られます）。
+// WithUserAgent sets the User-Agent sent as a common header.
+// The default is the browser-compatible UserAgent constant; you can identify
+// yourself instead, as in "my-service/1.0". An empty string leaves the header
+// unset (Go's standard default is sent).
 func WithUserAgent(ua string) ClientOption {
 	return func(c *Client) {
 		c.UserAgent = ua
 	}
 }
 
-// WithoutBrowserHeaders は sec-ch-ua 系ヘッダーの送信を無効化します。ブラウザを装う
-// 必要のない JSON API 向けです。User-Agent と Accept-Language は引き続き送ります。
+// WithoutBrowserHeaders stops sending the sec-ch-ua headers. It is meant for
+// JSON APIs that have no need to see a browser. User-Agent and
+// Accept-Language are still sent.
 func WithoutBrowserHeaders() ClientOption {
 	return func(c *Client) {
 		c.DisableBrowserHeaders = true
 	}
 }
 
-// WithSkipNetworkValidation は URL の事前検証をスキップします。localhost や private IP
-// など、内部ネットワークが相手のときに使います。
+// WithSkipNetworkValidation skips URL pre-validation. Use it when the target
+// is on an internal network, such as localhost or a private IP.
 //
-// WithDoer を併用していない場合は、既定の securenet クライアント（DNS Rebinding 対策
-// つき）ではなく標準の http.Client が構築される点にも効きます。
+// Without WithDoer, it also makes New build a standard http.Client instead of
+// the default securenet client (with DNS rebinding protection).
 func WithSkipNetworkValidation(skip bool) ClientOption {
 	return func(c *Client) {
 		c.SkipNetworkValidation = skip

@@ -7,26 +7,28 @@ import (
 	"net/http"
 )
 
-// SendStream は、組み立て済みのリクエストを実行し、レスポンスボディを
-// ストリーム (io.ReadCloser) として返します。読み終えたら Close してください。
+// SendStream runs a prepared request and returns the response body as a
+// stream (io.ReadCloser). Close it when you are done reading.
 //
-// ストリーム用クライアントで実行するため、ボディの読み取りには WithTimeout が
-// 掛かりません。ヘッダー受信までを Transport.ResponseHeaderTimeout で区切り、
-// 読み取りの寿命はリクエストの ctx に委ねます（WithDoer で注入した Doer を使う場合は
-// その設定に従うため、Timeout があればボディ読み取りごと切断されます）。
+// It runs on the streaming client, so WithTimeout does not apply to body
+// reads. The header phase is bounded by Transport.ResponseHeaderTimeout and
+// the lifetime of the read is left to the request's ctx (a Doer injected with
+// WithDoer follows its own settings, so a Timeout there cuts off the body
+// read too).
 //
-// 手組みの *http.Request には、ヘルパーが内部で付ける共通ヘッダー
-// (User-Agent / sec-ch-ua / Accept-Language) が付きません。URL の事前検証は掛かります。
+// A hand-built *http.Request does not get the common headers the helpers add
+// internally (User-Agent / sec-ch-ua / Accept-Language). URL pre-validation
+// does apply.
 func (c *Client) SendStream(req *http.Request) (io.ReadCloser, error) {
 	var body io.ReadCloser
 
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, err := c.doStream(r)
 		if err != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", redactURL(r.URL), redactURLError(err))
+			return fmt.Errorf("HTTP request failed (URL: %s): %w", redactURL(r.URL), redactURLError(err))
 		}
 
-		// nil レスポンス/ボディの検査は checkResponseStatus に集約されている
+		// The nil response/body checks live in checkResponseStatus.
 		if err := checkResponseStatus(resp); err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -44,7 +46,7 @@ func (c *Client) SendStream(req *http.Request) (io.ReadCloser, error) {
 	return body, nil
 }
 
-// doStream はストリーム用の Doer でリクエストを実行します。
+// doStream runs the request on the streaming Doer.
 func (c *Client) doStream(req *http.Request) (*http.Response, error) {
 	if c.streamClient != nil {
 		return c.streamClient.Do(req)
@@ -52,11 +54,12 @@ func (c *Client) doStream(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// ReadStream は GET リクエストを送信し、レスポンスボディを fn に読ませます。
-// ストリームの Close はこのメソッドが行うため、fn は読むことだけに集中できます。
+// ReadStream sends a GET request and lets fn read the response body.
+// This method closes the stream, so fn only has to read.
 //
-// fn がボディを読む間、WithTimeout は掛かりません。長いダウンロードが途中で切れないよう、
-// 読み取りの寿命は ctx に委ねています。呼び出しごとの締切は ctx で与えてください。
+// WithTimeout does not apply while fn reads the body. So that long downloads
+// are not cut off midway, the lifetime of the read is left to ctx. Give each
+// call its deadline through ctx.
 func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) error) error {
 	rc, err := c.GetStream(ctx, url)
 	if err != nil {
@@ -65,16 +68,17 @@ func (c *Client) ReadStream(ctx context.Context, url string, fn func(io.Reader) 
 	defer rc.Close()
 
 	if err := fn(rc); err != nil {
-		return fmt.Errorf("URL %q のストリーム処理に失敗しました: %w", redactURLString(url), err)
+		return fmt.Errorf("failed to process stream for URL %q: %w", redactURLString(url), err)
 	}
 	return nil
 }
 
-// GetStream は GET し、レスポンスボディをストリームとして返します。読み終えたら
-// Close してください。Close を書く場所がないなら ReadStream を使います。
+// GetStream sends a GET and returns the response body as a stream. Close it
+// when you are done reading. If there is nowhere to put the Close, use
+// ReadStream.
 //
-// 返したストリームの読み取りには WithTimeout が掛かりません。長いダウンロードが途中で
-// 切れないよう、読み取りの寿命は ctx に委ねています。
+// WithTimeout does not apply to reads from the returned stream. So that long
+// downloads are not cut off midway, the lifetime of the read is left to ctx.
 func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := c.makeRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -84,8 +88,8 @@ func (c *Client) GetStream(ctx context.Context, url string) (io.ReadCloser, erro
 	return c.SendStream(req)
 }
 
-// checkResponseStatus はステータスコードを検査します。2xx 以外なら、エラー詳細のため
-// resp.Body を最大 MaxErrorBodySize バイトだけ読みます。
+// checkResponseStatus checks the status code. For anything other than a 2xx,
+// it reads at most MaxErrorBodySize bytes of resp.Body for the error detail.
 func checkResponseStatus(resp *http.Response) error {
 	if resp == nil {
 		return ErrNilResponse
@@ -99,7 +103,7 @@ func checkResponseStatus(resp *http.Response) error {
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, MaxErrorBodySize))
 	if err != nil && len(bodyBytes) == 0 {
-		bodyBytes = []byte("エラー詳細の読み込みに失敗しました")
+		bodyBytes = []byte("failed to read error details")
 	}
 
 	return classifyStatusError(resp.StatusCode, bodyBytes, parseRetryAfter(resp.Header.Get("Retry-After")))

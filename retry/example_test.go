@@ -36,8 +36,8 @@ func ExampleRunValue() {
 	// Output: body="response body" err=<nil>
 }
 
-// 操作にコンテキストを渡したい場合は RunCtx を使用します。
-// 操作が ctx を監視していれば、実行中の試行も中断できます。
+// Use RunCtx to pass the context to the operation.
+// If the operation watches ctx, a running attempt can be interrupted too.
 func ExampleRunCtx() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -48,7 +48,7 @@ func ExampleRunCtx() {
 		if attempts < 2 {
 			return errors.New("temporary failure")
 		}
-		// ctx をそのまま下位の呼び出しへ渡せる。
+		// ctx can be passed straight down to lower-level calls.
 		return ctx.Err()
 	},
 		retry.WithName("ExternalAPI"),
@@ -61,7 +61,7 @@ func ExampleRunCtx() {
 
 var errServiceDown = errors.New("service down")
 
-// リトライ失敗時のエラーは errors.Is / errors.As で分類できます。
+// A retry failure can be classified with errors.Is / errors.As.
 func ExampleRun_errorHandling() {
 	err := retry.Run(context.Background(), func() error { return errServiceDown },
 		retry.WithName("Payment"),
@@ -81,7 +81,7 @@ func ExampleRun_errorHandling() {
 	// attempts: 2
 }
 
-// ShouldRetryFunc が false を返すと、その時点でリトライを打ち切ります。
+// When ShouldRetryFunc returns false, retrying stops right there.
 func ExampleWithShouldRetry() {
 	attempts := 0
 	errUnauthorized := errors.New("401 unauthorized")
@@ -92,7 +92,7 @@ func ExampleWithShouldRetry() {
 	},
 		retry.WithInitialInterval(time.Millisecond),
 		retry.WithShouldRetry(func(err error) bool {
-			// 認証エラーは何度試しても直らないためリトライしない
+			// An authentication error will not fix itself, so do not retry it.
 			return !errors.Is(err, errUnauthorized)
 		}),
 	)
@@ -104,14 +104,15 @@ func ExampleWithShouldRetry() {
 	// permanent: true
 }
 
-// throttledError は DelayHinter を実装し、サーバ指定の待機時間を伝えるエラーです。
+// throttledError implements DelayHinter, carrying a server-specified wait.
 type throttledError struct{}
 
 func (*throttledError) Error() string             { return "throttled" }
 func (*throttledError) RetryAfter() time.Duration { return 5 * time.Millisecond }
 
-// エラーが RetryAfter を実装していると、指数バックオフの算出値の代わりに
-// その値が次の待機時間として使われます（HTTP の Retry-After ヘッダー対応など）。
+// When the error implements RetryAfter, that value is used as the next wait
+// instead of the computed exponential backoff (for HTTP Retry-After header
+// support and the like).
 func ExampleDelayHinter() {
 	_ = retry.Run(context.Background(), func() error { return &throttledError{} },
 		retry.WithMaxRetries(1),
@@ -128,7 +129,7 @@ func ExampleWithNotify() {
 		retry.WithMaxRetries(2),
 		retry.WithInitialInterval(time.Millisecond),
 		retry.WithMaxInterval(time.Millisecond),
-		retry.WithRandomizationFactor(0), // 出力を決定的にするためジッタを無効化
+		retry.WithRandomizationFactor(0), // disable jitter so the output is deterministic
 		retry.WithNotify(func(err error, attempt uint, next time.Duration) {
 			fmt.Printf("attempt %d failed: %v (retrying in %v)\n", attempt, err, next)
 		}),

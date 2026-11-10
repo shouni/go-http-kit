@@ -6,24 +6,24 @@ import (
 	"net/http"
 )
 
-// Result は、バッファリング系メソッドが返す 1 往復の結果です。
-// Body は読み切り済みで、呼び出し側に Close の責務はありません。
+// Result is the outcome of one round trip, returned by the buffered methods.
+// Body has been read in full, so the caller has nothing to Close.
 //
-// 非 2xx は error 側（RetryableHTTPError / NonRetryableHTTPError）に落ちるため、
-// Result が返るのは 2xx のときだけです。Status は 200 と 201 と 204 を区別したい
-// ときに見るもので、成否の判定は err で行ってください。
+// A non-2xx ends up on the error side (RetryableHTTPError /
+// NonRetryableHTTPError), so a Result is returned only for a 2xx. Status is
+// there to tell 200, 201 and 204 apart; decide success or failure from err.
 type Result struct {
-	// Status は最後に受信したレスポンスのステータスコードです。
+	// Status is the status code of the last response received.
 	Status int
-	// Header は最後に受信したレスポンスのヘッダーです。
+	// Header holds the headers of the last response received.
 	Header http.Header
-	// Body は読み切り済みのレスポンスボディです。
+	// Body is the fully read response body.
 	Body []byte
 }
 
-// ContentType は Content-Type ヘッダーの値をそのまま返します。
-// "text/html; charset=utf-8" のようにパラメータが付いたままなので、MIME タイプだけが
-// 必要なら mime.ParseMediaType に渡してください。
+// ContentType returns the Content-Type header value as is.
+// Parameters are kept, as in "text/html; charset=utf-8", so pass it to
+// mime.ParseMediaType if you need only the MIME type.
 func (r *Result) ContentType() string {
 	if r == nil || r.Header == nil {
 		return ""
@@ -31,14 +31,14 @@ func (r *Result) ContentType() string {
 	return r.Header.Get("Content-Type")
 }
 
-// DecodeJSON は Body を JSON としてデコードします。空ボディはエラーです。
+// DecodeJSON decodes Body as JSON. An empty body is an error.
 func (r *Result) DecodeJSON(v any) error {
 	var body []byte
 	if r != nil {
 		body = r.Body
 	}
 	if err := json.Unmarshal(body, v); err != nil {
-		return fmt.Errorf("JSONデコードに失敗しました: %w", err)
+		return fmt.Errorf("failed to decode JSON: %w", err)
 	}
 	return nil
 }

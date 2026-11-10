@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// MockDoer は Doer のモック実装です。
+// MockDoer is a mock implementation of Doer.
 type MockDoer struct {
 	Responses []*http.Response
 	Errors    []error

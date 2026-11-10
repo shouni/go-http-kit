@@ -14,7 +14,7 @@ go vet ./...                        # vet
 gofmt -l .                          # check formatting (CI fails if output is non-empty); use `gofmt -w .` to fix
 go test -race ./...                 # full test suite, matches CI
 go test -race ./httpkit/... -run TestName   # run a single test
-go test -race ./retry -run 'TestRun/成功'    # retry パッケージ単体
+go test -race ./retry -run 'TestRun/success'   # retry package alone (spaces in subtest names become underscores)
 golangci-lint run                   # lint (config in .golangci.yml; CI uses the shared workflow's pin)
 govulncheck ./...                   # vulnerability scan (also runs in CI)
 ```
@@ -48,7 +48,7 @@ Retries happen by cloning the original `*http.Request` on each attempt (`execute
 **The retry predicate never sees the HTTP method, and that is deliberate — do not "fix" it.** `IsHTTPRetryableError(err error) bool` is handed only the error, so a POST is retried on 5xx and transient network errors exactly like a GET. Neither a 5xx nor a read timeout proves the server didn't process the request, so retrying a non-idempotent call can duplicate its side effect — a second Slack message, a second enqueued job. Making the predicate method-aware looks like the obvious correction and is wrong here, because **the HTTP method is not a usable proxy for idempotency in this family of repos** — it misclassifies in both directions:
 
 - `go-voicevox`'s synthesis call (`api/client.go`) is a **POST with no side effect** — the same text yields the same audio. It runs against a local engine that does get flaky under load, so it is exactly where a retry earns its keep. "Don't retry POST" would remove it.
-- `ap-mcp`'s delete (`internal/client/base.go`) is a **DELETE, idempotent by RFC 7231**, and is nonetheless routed through a no-retry client on purpose ("二重削除を避ける実益は薄いものの、他の書き込み操作と同様に"). "Retry idempotent methods" would reinstate a retry the author deliberately removed.
+- `ap-mcp`'s delete (`internal/client/base.go`) is a **DELETE, idempotent by RFC 7231**, and is nonetheless routed through a no-retry client on purpose (its comment: "there is little practical gain in avoiding a double delete, but, like the other write operations, …"). "Retry idempotent methods" would reinstate a retry the author deliberately removed.
 
 Idempotency is a property of the *operation*, not of the method, which is why the mainstream implementations use explicit declaration rather than method sniffing: Go's own `net/http` treats a request as replayable if it is GET/HEAD/OPTIONS/TRACE **or carries an `Idempotency-Key` header**; gRPC declares retry policy per method in service config; the AWS SDK carries idempotency in operation metadata. The escape hatch is always a caller declaration.
 
@@ -76,6 +76,11 @@ Retry-After support: an operation error whose chain implements `DelayHinter` (`R
 
 ### Test layout
 
-`retry` は外部テストパッケージ (`retry_test`) のみで、ミリ秒間隔と `WithRandomizationFactor(0)` を使います（既定の 5s/30s を待たせない）。`example_test.go` は `// Output:` 付きなのでテストとして走ります — ジッタ 0 のまま決定的に保ってください。
+`retry` has only an external test package (`retry_test`) and uses millisecond intervals and `WithRandomizationFactor(0)` (so tests never wait out the 5s/30s defaults). `example_test.go` has `// Output:` lines, so it runs as a test — keep it deterministic with zero jitter.
 
 Tests mix black-box (`package httpkit_test`, e.g. `client_test.go`, `request_test.go`; the shared `MockDoer` lives in `mock_test.go`) and white-box (`package httpkit`, suffixed `_internal_test.go`, e.g. `client_internal_test.go`) styles — use the white-box files when a test needs access to unexported helpers (`makeRequest`, `classifyStatusError`, etc.).
+
+## Conventions
+
+- Comments, doc comments, and error/log/panic messages are in English (moved from Japanese on 2026-11-10); do not mix Japanese back in. Error strings follow Go style: lowercase, no trailing punctuation (ST1005). Subtest names are English too (moved 2026-11-10). Japanese stays only where it is data — test fixtures.
+- `README.md` is in English and `README.ja.md` is its Japanese version; update the two together.

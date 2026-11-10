@@ -10,14 +10,15 @@ import (
 	"github.com/shouni/netarmor/securenet"
 )
 
-// execute は、リトライ付きでリクエストを実行し、ステータス・ヘッダー・ボディを
-// 読み切って返します。バッファリング系メソッド (Send / Get / Post) 共通の実行部です。
+// execute runs the request with retries and returns the status, headers and
+// the fully read body. It is the execution core shared by the buffered
+// methods (Send / Get / Post).
 func (c *Client) execute(req *http.Request) (*Result, error) {
 	res := &Result{}
 	err := c.executeWithClone(req, func(r *http.Request) error {
 		resp, doErr := c.Do(r)
 		if doErr != nil {
-			return fmt.Errorf("HTTPリクエスト失敗 (URL: %s): %w", redactURL(r.URL), redactURLError(doErr))
+			return fmt.Errorf("HTTP request failed (URL: %s): %w", redactURL(r.URL), redactURLError(doErr))
 		}
 		if resp != nil {
 			res.Status = resp.StatusCode
@@ -33,11 +34,11 @@ func (c *Client) execute(req *http.Request) (*Result, error) {
 	return res, nil
 }
 
-// makeRequest はリクエストを構築し、共通ヘッダーを付けます。
+// makeRequest builds a request and adds the common headers.
 func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, bodyReader io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("HTTPリクエスト作成失敗 (method: %s, url: %s): %w", method, redactURLString(urlStr), redactURLError(err))
+		return nil, fmt.Errorf("failed to create HTTP request (method: %s, url: %s): %w", method, redactURLString(urlStr), redactURLError(err))
 	}
 
 	c.addCommonHeaders(req)
@@ -45,8 +46,9 @@ func (c *Client) makeRequest(ctx context.Context, method string, urlStr string, 
 	return req, nil
 }
 
-// addCommonHeaders は、ヘルパーが構築するリクエストに共通ヘッダーを設定します。
-// User-Agent は Client.UserAgent、sec-ch-ua 系は DisableBrowserHeaders で制御します。
+// addCommonHeaders sets the common headers on requests the helpers build.
+// User-Agent is controlled by Client.UserAgent, the sec-ch-ua headers by
+// DisableBrowserHeaders.
 func (c *Client) addCommonHeaders(req *http.Request) {
 	if c.UserAgent != "" {
 		req.Header.Set("User-Agent", c.UserAgent)
@@ -61,15 +63,16 @@ func (c *Client) addCommonHeaders(req *http.Request) {
 	req.Header.Set("sec-ch-ua-platform", SecChUAPlatform)
 }
 
-// doWithRetry は操作をリトライ付きで実行します。DisableRetry なら一度だけ実行します。
+// doWithRetry runs op with retries, or exactly once when DisableRetry is set.
 func (c *Client) doWithRetry(ctx context.Context, operationName string, op func() error) error {
 	if c.DisableRetry {
 		return op()
 	}
 
-	// 呼び出し側の ctx が終わっていれば再試行しない。1 試行のタイムアウトも ctx の
-	// 期限切れも同じ context.DeadlineExceeded で返るため、エラーだけでは見分けられず、
-	// ここで ctx を直接見る。前者はリトライ対象（文書の「最悪 4 × timeout」はこの前提）。
+	// Do not retry once the caller's ctx is done. A per-attempt timeout and an
+	// expired ctx both surface as the same context.DeadlineExceeded, so the
+	// error alone cannot tell them apart; look at ctx directly here. The former
+	// is retryable (the documented worst case of 4 × timeout assumes it).
 	shouldRetry := func(err error) bool {
 		if ctx.Err() != nil {
 			return false
@@ -83,10 +86,11 @@ func (c *Client) doWithRetry(ctx context.Context, operationName string, op func(
 	return retry.Run(ctx, op, opts...)
 }
 
-// executeWithClone はリクエストをクローンしてリトライを実行します。
+// executeWithClone runs the request with retries, cloning it per attempt.
 //
-// ヘルパー経由か手組みの *http.Request 経由かを問わず、すべてのリクエストがここを
-// 通ります。SSRF 事前検証を一元的に置けるのはそのためです。
+// Every request passes through here, whether built by a helper or handed in
+// as a prepared *http.Request. That is what lets the SSRF pre-check live in
+// one place.
 func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) error) error {
 	if req == nil {
 		return ErrNilRequest
@@ -96,14 +100,15 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 		urlStr = req.URL.String()
 	}
 
-	// リトライ前に一度だけ検証する。名前解決はリクエストの ctx に従う。
+	// Validate once, before the retry loop. Name resolution follows the request's ctx.
 	if !c.SkipNetworkValidation {
 		if err := securenet.ValidateURL(req.Context(), urlStr); err != nil {
-			return fmt.Errorf("SSRF安全検証エラー: %w", err)
+			return fmt.Errorf("SSRF safety check failed: %w", err)
 		}
 	}
 
-	// 操作名はリトライのエラー文面に載るため、検証に渡す urlStr とは別に伏せたものを使う。
+	// The operation name appears in retry error messages, so use a redacted URL
+	// rather than the urlStr passed to validation.
 	operationName := req.Method + " " + redactURL(req.URL)
 
 	isFirstAttempt := true
@@ -111,7 +116,7 @@ func (c *Client) executeWithClone(req *http.Request, fn func(*http.Request) erro
 		cloneReq := req.Clone(req.Context())
 		if !isFirstAttempt && req.Body != nil {
 			if req.GetBody == nil {
-				return fmt.Errorf("%w: リクエストボディが存在しますが、GetBodyが設定されていないためリトライできません", ErrRequestBodyNotReplayable)
+				return fmt.Errorf("%w: request has a body but GetBody is not set, so it cannot be retried", ErrRequestBodyNotReplayable)
 			}
 			body, err := req.GetBody()
 			if err != nil {

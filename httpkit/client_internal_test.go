@@ -11,17 +11,17 @@ func TestNew_ImplementationSwitch(t *testing.T) {
 		client := New()
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
-			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+			t.Fatalf("httpClient is not *http.Client: %T", client.httpClient)
 		}
 
-		// securenet.NewSafeHTTPClient は必ず独自の Transport を生成してセットする
+		// securenet.NewSafeHTTPClient always creates and sets its own Transport.
 		if hc.Transport == nil {
 			t.Fatal("SafeHTTPClient must have an explicit Transport")
 		}
 
 		tr, ok := hc.Transport.(*http.Transport)
 		if !ok {
-			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+			t.Fatalf("Transport is not *http.Transport: %T", hc.Transport)
 		}
 		if tr.DialContext == nil {
 			t.Error("SafeHTTPClient must have a custom DialContext")
@@ -32,16 +32,16 @@ func TestNew_ImplementationSwitch(t *testing.T) {
 		client := New(WithTimeout(1*time.Second), WithSkipNetworkValidation(true))
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
-			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+			t.Fatalf("httpClient is not *http.Client: %T", client.httpClient)
 		}
 
-		// ResponseHeaderTimeout の設定が DefaultTransport へ波及しないよう、
-		// clone した Transport を明示的に持つ
+		// Hold a cloned Transport explicitly so setting ResponseHeaderTimeout
+		// does not leak into DefaultTransport.
 		if _, ok := hc.Transport.(*http.Transport); !ok {
-			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+			t.Fatalf("Transport is not *http.Transport: %T", hc.Transport)
 		}
 		if hc.Transport == http.DefaultTransport {
-			t.Error("DefaultTransport を直接共有してはいけない")
+			t.Error("DefaultTransport must not be shared directly")
 		}
 	})
 }
@@ -52,29 +52,29 @@ func TestNew_StreamClientSeparation(t *testing.T) {
 
 		hc, ok := client.httpClient.(*http.Client)
 		if !ok {
-			t.Fatalf("httpClient が *http.Client ではありません: %T", client.httpClient)
+			t.Fatalf("httpClient is not *http.Client: %T", client.httpClient)
 		}
 		sc, ok := client.streamClient.(*http.Client)
 		if !ok {
-			t.Fatalf("streamClient が *http.Client ではありません: %T", client.streamClient)
+			t.Fatalf("streamClient is not *http.Client: %T", client.streamClient)
 		}
 
 		if hc.Transport != sc.Transport {
-			t.Error("コネクションプール (Transport) が共有されていません")
+			t.Error("the connection pool (Transport) is not shared")
 		}
 		if hc.Timeout != 1*time.Second {
-			t.Errorf("hc.Timeout = %v, 期待 %v", hc.Timeout, 1*time.Second)
+			t.Errorf("hc.Timeout = %v, want %v", hc.Timeout, 1*time.Second)
 		}
 		if sc.Timeout != 0 {
-			t.Errorf("ストリーム用クライアントに全体タイムアウトが残っています: %v", sc.Timeout)
+			t.Errorf("the streaming client still has an overall timeout: %v", sc.Timeout)
 		}
 
 		tr, ok := hc.Transport.(*http.Transport)
 		if !ok {
-			t.Fatalf("Transport が *http.Transport ではありません: %T", hc.Transport)
+			t.Fatalf("Transport is not *http.Transport: %T", hc.Transport)
 		}
 		if tr.ResponseHeaderTimeout != 1*time.Second {
-			t.Errorf("ヘッダー受信タイムアウトが設定されていません: %v", tr.ResponseHeaderTimeout)
+			t.Errorf("the response header timeout is not set: %v", tr.ResponseHeaderTimeout)
 		}
 	})
 
@@ -82,12 +82,12 @@ func TestNew_StreamClientSeparation(t *testing.T) {
 		d := &stubDoer{}
 		client := New(WithTimeout(1*time.Second), WithDoer(d))
 		if client.streamClient != Doer(d) {
-			t.Error("注入した Doer がストリームにも使われるべき")
+			t.Error("the injected Doer should be used for streams too")
 		}
 	})
 }
 
-// stubDoer は同一性 (ポインタ比較) を確認するためのスタブです。
+// stubDoer is a stub for checking identity (pointer comparison).
 type stubDoer struct{}
 
 func (*stubDoer) Do(*http.Request) (*http.Response, error) { return nil, ErrNilResponse }
@@ -98,16 +98,16 @@ func TestClientTimeout(t *testing.T) {
 		client *Client
 		want   time.Duration
 	}{
-		{"未指定なら既定値", New(), DefaultHTTPTimeout},
-		{"指定した値を使う", New(WithTimeout(3 * time.Second)), 3 * time.Second},
-		{"0 は既定値に落ちる", New(WithTimeout(0)), DefaultHTTPTimeout},
-		{"負の値も既定値に落ちる", New(WithTimeout(-1 * time.Second)), DefaultHTTPTimeout},
+		{"unset uses default", New(), DefaultHTTPTimeout},
+		{"uses given value", New(WithTimeout(3 * time.Second)), 3 * time.Second},
+		{"zero falls back to default", New(WithTimeout(0)), DefaultHTTPTimeout},
+		{"negative falls back to default", New(WithTimeout(-1 * time.Second)), DefaultHTTPTimeout},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := tc.client.timeout(); got != tc.want {
-				t.Errorf("timeout() = %v, 期待 %v", got, tc.want)
+				t.Errorf("timeout() = %v, want %v", got, tc.want)
 			}
 		})
 	}

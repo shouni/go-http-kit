@@ -29,17 +29,18 @@ func TestIsHTTPRetryableError(t *testing.T) {
 			fmt.Errorf("fail: %w", context.Canceled),
 		} {
 			if client.IsHTTPRetryableError(err) {
-				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+				t.Errorf("IsHTTPRetryableError(%v) = true, want false", err)
 			}
 		}
 	})
 
-	// 1 試行のタイムアウトは DeadlineExceeded として返る。呼び出し側の ctx の期限切れと
-	// エラーだけでは区別できないため、判定単独ではリトライ対象とし、ctx は Client 側が見る。
+	// A per-attempt timeout surfaces as DeadlineExceeded. The error alone cannot
+	// tell it from the caller's ctx expiring, so the predicate on its own treats it
+	// as retryable and the Client looks at ctx.
 	t.Run("DeadlineExceededIsRetryable", func(t *testing.T) {
 		err := fmt.Errorf("fail: %w", context.DeadlineExceeded)
 		if !client.IsHTTPRetryableError(err) {
-			t.Errorf("IsHTTPRetryableError(%v) = false, 期待 true", err)
+			t.Errorf("IsHTTPRetryableError(%v) = false, want true", err)
 		}
 	})
 
@@ -51,7 +52,7 @@ func TestIsHTTPRetryableError(t *testing.T) {
 			fmt.Errorf("plain error"),
 		} {
 			if !client.IsHTTPRetryableError(err) {
-				t.Errorf("IsHTTPRetryableError(%v) = false, 期待 true", err)
+				t.Errorf("IsHTTPRetryableError(%v) = false, want true", err)
 			}
 		}
 	})
@@ -66,13 +67,14 @@ func TestIsHTTPRetryableError(t *testing.T) {
 			&httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest},
 		} {
 			if client.IsHTTPRetryableError(err) {
-				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+				t.Errorf("IsHTTPRetryableError(%v) = true, want false", err)
 			}
 		}
 	})
 
-	// 宛先そのものを理由にした拒否は、何度試しても結果が変わらない。http.Client は
-	// これを *url.Error に包んで返すので、その形でも判定できること。
+	// A refusal on account of the destination itself gives the same result every
+	// time. http.Client returns it wrapped in a *url.Error, so it must be
+	// recognised in that form too.
 	t.Run("SecurenetDeterministicErrors", func(t *testing.T) {
 		for _, sentinel := range []error{
 			securenet.ErrRestrictedIP,
@@ -84,15 +86,15 @@ func TestIsHTTPRetryableError(t *testing.T) {
 		} {
 			err := &url.Error{Op: "Get", URL: "http://10.0.0.1/secret", Err: fmt.Errorf("dial: %w", sentinel)}
 			if client.IsHTTPRetryableError(err) {
-				t.Errorf("IsHTTPRetryableError(%v) = true, 期待 false", err)
+				t.Errorf("IsHTTPRetryableError(%v) = true, want false", err)
 			}
 		}
 	})
 
-	// 名前解決の失敗は DNS の瞬断でありうるので、リトライ対象のまま。
+	// A resolution failure can be a DNS blip, so it stays retryable.
 	t.Run("SecurenetTransientErrors", func(t *testing.T) {
 		if !client.IsHTTPRetryableError(fmt.Errorf("lookup: %w", securenet.ErrNoAddresses)) {
-			t.Error("IsHTTPRetryableError(ErrNoAddresses) = false, 期待 true")
+			t.Error("IsHTTPRetryableError(ErrNoAddresses) = false, want true")
 		}
 	})
 }
@@ -105,27 +107,27 @@ func TestHTTPErrorTypes(t *testing.T) {
 		}
 		_, err := httpkit.HandleResponse(resp)
 		if !httpkit.IsRetryableHTTPError(err) {
-			t.Errorf("IsRetryableHTTPError = false, 期待 true (err: %v)", err)
+			t.Errorf("IsRetryableHTTPError = false, want true (err: %v)", err)
 		}
 		if !strings.Contains(err.Error(), `server\nerror`) {
-			t.Errorf("エラーメッセージに %q が含まれていません: %v", `server\nerror`, err)
+			t.Errorf("error message does not contain %q: %v", `server\nerror`, err)
 		}
 	})
 
 	t.Run("NonRetryableHTTPError", func(t *testing.T) {
 		err := &httpkit.NonRetryableHTTPError{StatusCode: http.StatusBadRequest, Body: []byte("bad\nrequest")}
 		if !httpkit.IsNonRetryableError(fmt.Errorf("wrapped: %w", err)) {
-			t.Error("IsNonRetryableError = false, 期待 true")
+			t.Error("IsNonRetryableError = false, want true")
 		}
 		if !strings.Contains(err.Error(), `bad\nrequest`) {
-			t.Errorf("エラーメッセージに %q が含まれていません: %v", `bad\nrequest`, err)
+			t.Errorf("error message does not contain %q: %v", `bad\nrequest`, err)
 		}
 	})
 
 	t.Run("ErrorsIs", func(t *testing.T) {
 		err := fmt.Errorf("wrapped: %w", httpkit.ErrNilResponse)
 		if !errors.Is(err, httpkit.ErrNilResponse) {
-			t.Error("errors.Is(err, ErrNilResponse) = false, 期待 true")
+			t.Error("errors.Is(err, ErrNilResponse) = false, want true")
 		}
 	})
 }

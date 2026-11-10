@@ -16,7 +16,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 	t.Run("NilResponse", func(t *testing.T) {
 		_, err := httpkit.HandleResponse(nil)
 		if !errors.Is(err, httpkit.ErrNilResponse) {
-			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilResponse)
+			t.Errorf("err = %v, want %v", err, httpkit.ErrNilResponse)
 		}
 	})
 
@@ -24,7 +24,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusOK}
 		_, err := httpkit.HandleResponse(resp)
 		if !errors.Is(err, httpkit.ErrNilResponseBody) {
-			t.Errorf("err = %v, 期待 %v", err, httpkit.ErrNilResponseBody)
+			t.Errorf("err = %v, want %v", err, httpkit.ErrNilResponseBody)
 		}
 	})
 
@@ -36,10 +36,10 @@ func TestHandleResponse_Logic(t *testing.T) {
 		}
 		_, err := httpkit.HandleResponse(resp)
 		if !errors.Is(err, httpkit.ErrResponseBodyTooLarge) {
-			t.Fatalf("err = %v, 期待 %v", err, httpkit.ErrResponseBodyTooLarge)
+			t.Fatalf("err = %v, want %v", err, httpkit.ErrResponseBodyTooLarge)
 		}
-		if !strings.Contains(err.Error(), "を超える可能性があります") {
-			t.Errorf("エラーメッセージが想定と異なります: %v", err)
+		if !strings.Contains(err.Error(), "may exceed the maximum size") {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 
@@ -47,10 +47,10 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(bytes.NewBufferString("server error"))}
 		_, err := httpkit.HandleResponse(resp)
 		if !httpkit.IsRetryableHTTPError(err) {
-			t.Fatalf("500 はリトライ対象のはず: %v", err)
+			t.Fatalf("a 500 should be retryable: %v", err)
 		}
 		if !strings.Contains(err.Error(), "server error") {
-			t.Errorf("エラーメッセージにボディが含まれていません: %v", err)
+			t.Errorf("error message does not contain the body: %v", err)
 		}
 	})
 
@@ -58,7 +58,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(bytes.NewBufferString("not found"))}
 		_, err := httpkit.HandleResponse(resp)
 		if !httpkit.IsNonRetryableError(err) {
-			t.Errorf("404 はリトライ対象外のはず: %v", err)
+			t.Errorf("a 404 should not be retryable: %v", err)
 		}
 	})
 
@@ -66,7 +66,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(bytes.NewBufferString("rate limited"))}
 		_, err := httpkit.HandleResponse(resp)
 		if !httpkit.IsRetryableHTTPError(err) {
-			t.Errorf("429 はリトライ対象のはず: %v", err)
+			t.Errorf("a 429 should be retryable: %v", err)
 		}
 	})
 
@@ -80,13 +80,13 @@ func TestHandleResponse_Logic(t *testing.T) {
 
 		retryable, ok := errors.AsType[*httpkit.RetryableHTTPError](err)
 		if !ok {
-			t.Fatalf("*RetryableHTTPError を期待していましたが、異なります: %v", err)
+			t.Fatalf("want *RetryableHTTPError, got: %v", err)
 		}
 		if retryable.RetryAfterDelay != 30*time.Second {
-			t.Errorf("RetryAfterDelay = %v, 期待 %v", retryable.RetryAfterDelay, 30*time.Second)
+			t.Errorf("RetryAfterDelay = %v, want %v", retryable.RetryAfterDelay, 30*time.Second)
 		}
 		if retryable.RetryAfter() != 30*time.Second {
-			t.Errorf("DelayHinter の実装が Retry-After を返すはず: %v", retryable.RetryAfter())
+			t.Errorf("the DelayHinter implementation should return Retry-After: %v", retryable.RetryAfter())
 		}
 	})
 
@@ -94,7 +94,7 @@ func TestHandleResponse_Logic(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusRequestTimeout, Body: io.NopCloser(bytes.NewBufferString("timeout"))}
 		_, err := httpkit.HandleResponse(resp)
 		if !httpkit.IsRetryableHTTPError(err) {
-			t.Errorf("408 はリトライ対象のはず: %v", err)
+			t.Errorf("a 408 should be retryable: %v", err)
 		}
 	})
 
@@ -105,10 +105,10 @@ func TestHandleResponse_Logic(t *testing.T) {
 
 		retryable, ok := errors.AsType[*httpkit.RetryableHTTPError](err)
 		if !ok {
-			t.Fatalf("*RetryableHTTPError を期待していましたが、異なります: %v", err)
+			t.Fatalf("want *RetryableHTTPError, got: %v", err)
 		}
 		if len(retryable.Body) != httpkit.MaxErrorBodySize {
-			t.Errorf("エラー値が保持するボディは MaxErrorBodySize までに切り詰められるはず: len = %d, 期待 %d",
+			t.Errorf("the body kept on the error value should be truncated to MaxErrorBodySize: len = %d, want %d",
 				len(retryable.Body), httpkit.MaxErrorBodySize)
 		}
 	})

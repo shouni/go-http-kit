@@ -15,8 +15,8 @@ import (
 	"github.com/shouni/netarmor/securenet"
 )
 
-// TestWithoutRetryDisablesRetryOnDerivedClientOnly は、派生クライアントだけが
-// リトライを行わなくなり、元のクライアントは影響を受けないことを検証します。
+// TestWithoutRetryDisablesRetryOnDerivedClientOnly verifies that only the
+// derived client stops retrying and the original client is unaffected.
 func TestWithoutRetryDisablesRetryOnDerivedClientOnly(t *testing.T) {
 	t.Parallel()
 
@@ -24,15 +24,15 @@ func TestWithoutRetryDisablesRetryOnDerivedClientOnly(t *testing.T) {
 	derived := client.WithoutRetry()
 
 	if client.DisableRetry {
-		t.Error("元のクライアントのリトライ設定が書き換えられています")
+		t.Error("the original client's retry setting was modified")
 	}
 	if !derived.DisableRetry {
-		t.Error("派生クライアントのリトライが無効になっていません")
+		t.Error("retries are not disabled on the derived client")
 	}
 }
 
-// TestWithoutRetryKeepsOtherSettings は、リトライ以外の設定が引き継がれることを
-// 検証します。設定を書き写さずに済むことがこのメソッドの目的です。
+// TestWithoutRetryKeepsOtherSettings verifies that settings other than retry
+// carry over. Not having to copy settings is the point of this method.
 func TestWithoutRetryKeepsOtherSettings(t *testing.T) {
 	t.Parallel()
 
@@ -43,15 +43,15 @@ func TestWithoutRetryKeepsOtherSettings(t *testing.T) {
 	derived := client.WithoutRetry()
 
 	if !derived.SkipNetworkValidation {
-		t.Error("SkipNetworkValidation が引き継がれていません")
+		t.Error("SkipNetworkValidation was not carried over")
 	}
 	if derived.RetryConfig != client.RetryConfig {
-		t.Errorf("RetryConfig = %+v, 期待 %+v", derived.RetryConfig, client.RetryConfig)
+		t.Errorf("RetryConfig = %+v, want %+v", derived.RetryConfig, client.RetryConfig)
 	}
 }
 
-// TestWithoutRetrySharesUnderlyingDoer は、内部の Doer が共有されることを
-// 検証します。New を呼び直す場合と違い、コネクションプールが分かれません。
+// TestWithoutRetrySharesUnderlyingDoer verifies that the internal Doer is
+// shared. Unlike calling New again, the connection pool is not split.
 func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 	t.Parallel()
 
@@ -72,19 +72,19 @@ func TestWithoutRetrySharesUnderlyingDoer(t *testing.T) {
 
 	_, err := derived.PostJSON(context.Background(), "https://example.com", map[string]string{"a": "b"})
 	if err != nil {
-		t.Fatalf("予期しないエラー: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if got := calls.Load(); got != 1 {
-		t.Errorf("注入した Doer が使われていません: 呼び出し回数 = %d, 期待 1", got)
+		t.Errorf("the injected Doer was not used: calls = %d, want 1", got)
 	}
 }
 
-// TestWithoutRetryStopsRepeatingNonIdempotentPost は、派生クライアントが
-// 5xx を受けても POST を再送しないことを検証します。
+// TestWithoutRetryStopsRepeatingNonIdempotentPost verifies that the derived
+// client does not resend a POST on a 5xx.
 //
-// Webhook のような非冪等な送信では、サーバに届いた後でレスポンスを
-// 取りこぼした場合のリトライが二重投稿になります。
+// For a non-idempotent send such as a webhook, retrying after the request
+// reached the server but the response was lost posts twice.
 func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 	t.Parallel()
 
@@ -102,16 +102,17 @@ func TestWithoutRetryStopsRepeatingNonIdempotentPost(t *testing.T) {
 
 	_, err := client.WithoutRetry().PostJSON(context.Background(), server.URL, map[string]string{"text": "hello"})
 	if err == nil {
-		t.Fatal("5xx はエラーとして返る想定です")
+		t.Fatal("a 5xx should be returned as an error")
 	}
 
 	if got := attempts.Load(); got != 1 {
-		t.Errorf("リトライ無効なのに再送されています: 試行回数 = %d, 期待 1", got)
+		t.Errorf("resent although retries are disabled: attempts = %d, want 1", got)
 	}
 }
 
-// TestRetainedClientStillRetries は、派生元が従来どおりリトライすることを
-// 検証します。WithoutRetry の追加が既存の挙動を変えていないことの確認です。
+// TestRetainedClientStillRetries verifies that the client derived from still
+// retries as before, confirming that adding WithoutRetry did not change
+// existing behaviour.
 func TestRetainedClientStillRetries(t *testing.T) {
 	t.Parallel()
 
@@ -127,42 +128,43 @@ func TestRetainedClientStillRetries(t *testing.T) {
 		httpkit.WithInitialInterval(1*time.Millisecond),
 		httpkit.WithMaxInterval(2*time.Millisecond),
 	)
-	_ = client.WithoutRetry() // 派生させても元には影響しないこと
+	_ = client.WithoutRetry() // deriving must not affect the original
 
 	_, err := client.PostJSON(context.Background(), server.URL, map[string]string{"text": "hello"})
 	if err == nil {
-		t.Fatal("5xx はエラーとして返る想定です")
+		t.Fatal("a 5xx should be returned as an error")
 	}
 
 	if got := attempts.Load(); got <= 1 {
-		t.Errorf("元のクライアントがリトライしていません: 試行回数 = %d, 期待 2 以上", got)
+		t.Errorf("the original client did not retry: attempts = %d, want 2 or more", got)
 	}
 }
 
-// TestWithoutRetryOnNilReceiver は、nil レシーバでもパニックしないことを検証します。
+// TestWithoutRetryOnNilReceiver verifies that a nil receiver does not panic.
 func TestWithoutRetryOnNilReceiver(t *testing.T) {
 	t.Parallel()
 
 	var client *httpkit.Client
 	if got := client.WithoutRetry(); got != nil {
-		t.Errorf("nil レシーバからの派生は nil を期待: %+v", got)
+		t.Errorf("deriving from a nil receiver should return nil: %+v", got)
 	}
 }
 
-// doerFunc は関数を httpkit.Doer として扱うためのアダプターです。
+// doerFunc adapts a function to httpkit.Doer.
 type doerFunc func(req *http.Request) (*http.Response, error)
 
-// Do は Doer インターフェースを実装します。
+// Do implements the Doer interface.
 func (f doerFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
 
-// TestRestrictedRedirectIsNotRetried は、内部アドレスへのリダイレクトのように securenet が
-// 宛先を拒否した失敗を、1 回の試行で諦めることを検証します。判定は何度試しても同じで、
-// 再試行するとバックオフの全時間を拒否するだけの応答に費やします。
+// TestRestrictedRedirectIsNotRetried verifies that a failure where securenet
+// refused the destination, such as a redirect to an internal address, gives
+// up after one attempt. The verdict is the same every time, and retrying
+// would spend the whole backoff on refusals.
 func TestRestrictedRedirectIsNotRetried(t *testing.T) {
 	var calls atomic.Int32
 	stub := doerFunc(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
-		// http.Client が接続時検証の失敗を返すときの形。
+		// The shape http.Client returns when connect-time validation fails.
 		return nil, &url.Error{Op: "Get", URL: "http://10.0.0.1/secret", Err: securenet.ErrRestrictedIP}
 	})
 
@@ -175,13 +177,14 @@ func TestRestrictedRedirectIsNotRetried(t *testing.T) {
 		t.Fatalf("Get() error = %v, want securenet.ErrRestrictedIP", err)
 	}
 	if got := calls.Load(); got != 1 {
-		t.Errorf("試行回数 = %d, want 1（宛先の拒否は再試行しない）", got)
+		t.Errorf("attempts = %d, want 1 (a refused destination is not retried)", got)
 	}
 }
 
-// TestRetryAfterBeyondLimitStopsImmediately は、相手サーバが上限を超える Retry-After を返した
-// ときに、待たずに 1 回の試行で諦めることを検証します。上限が無いと、相手が「3600」と
-// 返しただけで呼び出し側の ctx が切れるまで眠り続けます。
+// TestRetryAfterBeyondLimitStopsImmediately verifies that when the server
+// returns a Retry-After over the cap, the client gives up after one attempt
+// without waiting. Without a cap, a server answering "3600" would put the
+// caller to sleep until its ctx expires.
 func TestRetryAfterBeyondLimitStopsImmediately(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -201,26 +204,27 @@ func TestRetryAfterBeyondLimitStopsImmediately(t *testing.T) {
 		t.Fatalf("Get() error = %v, want retry.ErrRetryAfterTooLong", err)
 	}
 	if got := calls.Load(); got != 1 {
-		t.Errorf("試行回数 = %d, want 1", got)
+		t.Errorf("attempts = %d, want 1", got)
 	}
 	if waited := time.Since(start); waited > 500*time.Millisecond {
-		t.Errorf("打ち切るべきところで %v 待ちました", waited)
+		t.Errorf("waited %v where it should have given up", waited)
 	}
-	// 相手の指示は最後のエラーに残る。
+	// The server's instruction is kept on the last error.
 	retryable, ok := errors.AsType[*httpkit.RetryableHTTPError](err)
 	if !ok || retryable.RetryAfterDelay != time.Hour {
-		t.Errorf("RetryAfterDelay が失われています: %v", err)
+		t.Errorf("RetryAfterDelay was lost: %v", err)
 	}
 }
 
-// TestPerAttemptTimeoutIsRetried は、1 試行のタイムアウト（WithTimeout の発火）が再試行される
-// ことを検証します。文書の「最悪 4 × timeout + バックオフ」はこの前提です。以前は
-// context.DeadlineExceeded を一律に非リトライにしていたため、1 試行で諦めていました。
+// TestPerAttemptTimeoutIsRetried verifies that a per-attempt timeout
+// (WithTimeout firing) is retried. The documented worst case of
+// "4 × timeout + backoff" assumes this. context.DeadlineExceeded used to be
+// non-retryable across the board, so the client gave up after one attempt.
 func TestPerAttemptTimeoutIsRetried(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		<-r.Context().Done() // 相手が黙り込んだ状態。クライアント側のタイムアウトで切れる。
+		<-r.Context().Done() // The server goes silent; the client-side timeout cuts it off.
 	}))
 	defer srv.Close()
 
@@ -233,16 +237,16 @@ func TestPerAttemptTimeoutIsRetried(t *testing.T) {
 		t.Fatalf("Get() error = %v, want context.DeadlineExceeded", err)
 	}
 	if !errors.Is(err, retry.ErrExhausted) {
-		t.Errorf("errors.Is(err, retry.ErrExhausted) = false: タイムアウトは回数上限まで再試行するはず: %v", err)
+		t.Errorf("errors.Is(err, retry.ErrExhausted) = false: a timeout should be retried up to the limit: %v", err)
 	}
 	if got := hits.Load(); got != 3 {
-		t.Errorf("試行回数 = %d, want 3（初回 + 2 回）", got)
+		t.Errorf("attempts = %d, want 3 (first + 2)", got)
 	}
 }
 
-// TestCallerDeadlineIsNotRetried は、呼び出し側の ctx の期限切れは再試行しないことを
-// 検証します。1 試行のタイムアウトと同じ DeadlineExceeded で返るため、判定はエラーではなく
-// ctx を直接見ます。
+// TestCallerDeadlineIsNotRetried verifies that the caller's ctx expiring is
+// not retried. It surfaces as the same DeadlineExceeded as a per-attempt
+// timeout, so the decision looks at ctx directly rather than at the error.
 func TestCallerDeadlineIsNotRetried(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -262,6 +266,6 @@ func TestCallerDeadlineIsNotRetried(t *testing.T) {
 		t.Fatalf("Get() error = %v, want context.DeadlineExceeded", err)
 	}
 	if got := hits.Load(); got != 1 {
-		t.Errorf("試行回数 = %d, want 1（呼び出し側の期限切れは再試行しない）", got)
+		t.Errorf("attempts = %d, want 1 (the caller's deadline is not retried)", got)
 	}
 }
