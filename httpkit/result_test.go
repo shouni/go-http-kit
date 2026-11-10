@@ -14,10 +14,10 @@ func TestResult_ContentType(t *testing.T) {
 		res  *httpkit.Result
 		want string
 	}{
-		{"ヘッダーの値をそのまま返す", &httpkit.Result{Header: http.Header{"Content-Type": []string{"text/html; charset=utf-8"}}}, "text/html; charset=utf-8"},
-		{"ヘッダーが無ければ空文字", &httpkit.Result{Header: http.Header{}}, ""},
-		{"Header が nil でも落ちない", &httpkit.Result{}, ""},
-		{"レシーバが nil でも落ちない", nil, ""},
+		{"returns header value as is", &httpkit.Result{Header: http.Header{"Content-Type": []string{"text/html; charset=utf-8"}}}, "text/html; charset=utf-8"},
+		{"empty without header", &httpkit.Result{Header: http.Header{}}, ""},
+		{"nil Header does not panic", &httpkit.Result{}, ""},
+		{"nil receiver does not panic", nil, ""},
 	}
 
 	for _, tc := range testCases {
@@ -34,7 +34,7 @@ func TestResult_DecodeJSON(t *testing.T) {
 		Name string `json:"name"`
 	}
 
-	t.Run("デコードできる", func(t *testing.T) {
+	t.Run("decodes", func(t *testing.T) {
 		res := &httpkit.Result{Body: []byte(`{"name":"kit"}`)}
 
 		var got payload
@@ -46,7 +46,7 @@ func TestResult_DecodeJSON(t *testing.T) {
 		}
 	})
 
-	t.Run("空ボディはエラーになる", func(t *testing.T) {
+	t.Run("empty body is an error", func(t *testing.T) {
 		res := &httpkit.Result{}
 
 		var got payload
@@ -59,7 +59,7 @@ func TestResult_DecodeJSON(t *testing.T) {
 		}
 	})
 
-	t.Run("レシーバが nil でも落ちない", func(t *testing.T) {
+	t.Run("nil receiver does not panic", func(t *testing.T) {
 		var res *httpkit.Result
 
 		var got payload

@@ -46,7 +46,7 @@ func assertRedacted(t *testing.T, err error, wantIs error) {
 func TestErrorsDoNotLeakQuery(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("リトライなし", func(t *testing.T) {
+	t.Run("no retry", func(t *testing.T) {
 		client := httpkit.New(httpkit.WithDoer(failingDoer()), httpkit.WithSkipNetworkValidation(true), httpkit.WithNoRetry())
 		_, err := client.Get(ctx, secretURL)
 		assertRedacted(t, err, errDial)
@@ -55,27 +55,27 @@ func TestErrorsDoNotLeakQuery(t *testing.T) {
 		}
 	})
 
-	t.Run("リトライの操作名", func(t *testing.T) {
+	t.Run("retry operation name", func(t *testing.T) {
 		client := httpkit.New(httpkit.WithDoer(failingDoer()), httpkit.WithSkipNetworkValidation(true),
 			httpkit.WithMaxRetries(1), httpkit.WithInitialInterval(time.Millisecond), httpkit.WithMaxInterval(time.Millisecond))
 		_, err := client.Get(ctx, secretURL)
 		assertRedacted(t, err, nil)
 	})
 
-	t.Run("ストリーム", func(t *testing.T) {
+	t.Run("stream", func(t *testing.T) {
 		client := httpkit.New(httpkit.WithDoer(failingDoer()), httpkit.WithSkipNetworkValidation(true), httpkit.WithNoRetry())
 		_, err := client.GetStream(ctx, secretURL)
 		assertRedacted(t, err, errDial)
 	})
 
-	t.Run("ストリームの読み取り失敗", func(t *testing.T) {
+	t.Run("stream read failure", func(t *testing.T) {
 		errRead := errors.New("read failed")
 		client := httpkit.New(httpkit.WithDoer(&MockDoer{}), httpkit.WithSkipNetworkValidation(true), httpkit.WithNoRetry())
 		err := client.ReadStream(ctx, secretURL, func(io.Reader) error { return errRead })
 		assertRedacted(t, err, errRead)
 	})
 
-	t.Run("解析できない URL", func(t *testing.T) {
+	t.Run("unparsable URL", func(t *testing.T) {
 		client := httpkit.New(httpkit.WithSkipNetworkValidation(true), httpkit.WithNoRetry())
 		_, err := client.Get(ctx, "https://example.com/%zz?X-Goog-Signature=topsecret")
 		assertRedacted(t, err, nil)

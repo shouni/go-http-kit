@@ -12,15 +12,15 @@ func TestRedactURLString(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{"クエリなし", "https://example.com/a/b", "https://example.com/a/b"},
-		{"クエリは値を落とす", "https://storage.googleapis.com/b/o?X-Goog-Signature=secret&X-Goog-Expires=600", "https://storage.googleapis.com/b/o?REDACTED"},
-		{"フラグメントは落とす", "https://example.com/a#access_token=secret", "https://example.com/a"},
-		{"空のクエリも付いていたことは残す", "https://example.com/a?", "https://example.com/a?REDACTED"},
-		{"パスワードは Redacted と同じく伏せる", "https://user:secret@example.com/a", "https://user:xxxxx@example.com/a"},
-		{"解析できない URL も ? 以降を落とす", "http://example.com/%zz?token=secret", "http://example.com/%zz?REDACTED"},
-		{"解析できず ? も無ければそのまま", "http://example.com/%zz", "http://example.com/%zz"},
-		{"解析できない URL のユーザー情報は丸ごと伏せる", "http://user:secret@example.com/%zz", "http://xxxxx@example.com/%zz"},
-		{"解析できない URL のパスの @ は残す", "http://example.com/%zz/a@b", "http://example.com/%zz/a@b"},
+		{"no query", "https://example.com/a/b", "https://example.com/a/b"},
+		{"query values dropped", "https://storage.googleapis.com/b/o?X-Goog-Signature=secret&X-Goog-Expires=600", "https://storage.googleapis.com/b/o?REDACTED"},
+		{"fragment dropped", "https://example.com/a#access_token=secret", "https://example.com/a"},
+		{"empty query is still marked", "https://example.com/a?", "https://example.com/a?REDACTED"},
+		{"password masked like Redacted", "https://user:secret@example.com/a", "https://user:xxxxx@example.com/a"},
+		{"unparsable URL drops after ?", "http://example.com/%zz?token=secret", "http://example.com/%zz?REDACTED"},
+		{"unparsable without ? is unchanged", "http://example.com/%zz", "http://example.com/%zz"},
+		{"unparsable URL userinfo fully masked", "http://user:secret@example.com/%zz", "http://xxxxx@example.com/%zz"},
+		{"unparsable URL keeps @ in path", "http://example.com/%zz/a@b", "http://example.com/%zz/a@b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

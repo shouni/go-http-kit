@@ -26,7 +26,7 @@ func fastOpts(extra ...retry.Option) []retry.Option {
 func TestRun(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("成功: 1回失敗した後にリトライで成功すること", func(t *testing.T) {
+	t.Run("success: succeeds on retry after one failure", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			err := retry.Run(ctx, func() error {
@@ -46,7 +46,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗: 最大リトライ回数を超えてエラーが返ること", func(t *testing.T) {
+	t.Run("failure: error after max retries", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			errExpected := errors.New("persistent error")
@@ -82,7 +82,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("中断: ShouldRetryFuncがfalseを返した時に即座に中止すること", func(t *testing.T) {
+	t.Run("abort: stops when ShouldRetryFunc returns false", func(t *testing.T) {
 		calls := 0
 		fatalErr := errors.New("fatal error")
 		shouldRetry := func(err error) bool {
@@ -108,7 +108,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("キャンセル: Contextがキャンセルされた場合に中断すること", func(t *testing.T) {
+	t.Run("cancel: stops when context is canceled", func(t *testing.T) {
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -128,7 +128,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("キャンセル: WithCancelCause の原因が伝播すること", func(t *testing.T) {
+	t.Run("cancel: WithCancelCause cause propagates", func(t *testing.T) {
 		causeErr := errors.New("shutting down")
 		cancelCtx, cancel := context.WithCancelCause(context.Background())
 		cancel(causeErr)
@@ -140,7 +140,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("タイムアウト: Contextのデッドラインで打ち切られること", func(t *testing.T) {
+	t.Run("timeout: stops at context deadline", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 			defer cancel()
@@ -158,7 +158,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("WithMaxRetries(0) はリトライせず1回だけ実行すること", func(t *testing.T) {
+	t.Run("WithMaxRetries(0) runs once without retry", func(t *testing.T) {
 		calls := 0
 		err := retry.Run(ctx, func() error {
 			calls++
@@ -173,7 +173,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("WithMaxAttempts は初回実行を含む回数であること", func(t *testing.T) {
+	t.Run("WithMaxAttempts counts the first attempt", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			_ = retry.Run(ctx, func() error {
@@ -188,7 +188,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("WithMaxAttempts(0) は1回として扱われること", func(t *testing.T) {
+	t.Run("WithMaxAttempts(0) is treated as one", func(t *testing.T) {
 		calls := 0
 		_ = retry.Run(ctx, func() error {
 			calls++
@@ -200,7 +200,7 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("WithNotify が各リトライ前に呼ばれること", func(t *testing.T) {
+	t.Run("WithNotify is called before each retry", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			var attempts []uint
 			var waits []time.Duration
@@ -226,7 +226,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("WithRandomizationFactor(0) で待機時間が決定的になること", func(t *testing.T) {
+	t.Run("WithRandomizationFactor(0) makes waits deterministic", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			var waits []time.Duration
 
@@ -253,7 +253,7 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("WithMaxElapsedTime で経過時間により打ち切られること", func(t *testing.T) {
+	t.Run("WithMaxElapsedTime stops on elapsed time", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			opErr := errors.New("boom")
@@ -287,13 +287,13 @@ func TestRun(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
+	t.Run("failure: nil Operation errors immediately", func(t *testing.T) {
 		if err := retry.Run(ctx, nil); !errors.Is(err, retry.ErrNilOperation) {
 			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 
-	t.Run("nil context は Background として扱われること", func(t *testing.T) {
+	t.Run("nil context is treated as Background", func(t *testing.T) {
 		// Check that passing nil by mistake does not panic.
 		var nilCtx context.Context
 		if err := retry.Run(nilCtx, func() error { return nil }); err != nil {
@@ -311,7 +311,7 @@ func (e *rateLimitedError) RetryAfter() time.Duration { return e.after }
 func TestRetryAfterHint(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("上限を超えるヒントは待たずに打ち切ること", func(t *testing.T) {
+	t.Run("hint above limit stops without waiting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: time.Hour}
 			var calls int
@@ -340,7 +340,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("上限以内のヒントは従うこと", func(t *testing.T) {
+	t.Run("hint within limit is followed", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: 40 * time.Millisecond}
 			var waits []time.Duration
@@ -359,7 +359,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("ヒントが次の待機時間として使われること", func(t *testing.T) {
+	t.Run("hint is used as next wait", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: 80 * time.Millisecond}
 			var waits []time.Duration
@@ -382,7 +382,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("ラップされたヒントも errors.As で検出されること", func(t *testing.T) {
+	t.Run("wrapped hint is found by errors.As", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: 60 * time.Millisecond}
 			var waits []time.Duration
@@ -402,7 +402,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("0以下のヒントは無視され通常のバックオフになること", func(t *testing.T) {
+	t.Run("non-positive hint falls back to backoff", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: 0}
 			var waits []time.Duration
@@ -422,7 +422,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("フックと最終エラーには元のエラーが渡ること", func(t *testing.T) {
+	t.Run("hook and final error get original error", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			hinted := &rateLimitedError{after: time.Millisecond}
 			var notified []error
@@ -449,7 +449,7 @@ func TestRetryAfterHint(t *testing.T) {
 		})
 	})
 
-	t.Run("ShouldRetryFunc の打ち切りがヒントより優先されること", func(t *testing.T) {
+	t.Run("ShouldRetryFunc stop overrides hint", func(t *testing.T) {
 		calls := 0
 		err := retry.Run(ctx, func() error {
 			calls++
@@ -470,7 +470,7 @@ func TestRetryAfterHint(t *testing.T) {
 }
 
 func TestRunCtx(t *testing.T) {
-	t.Run("操作に呼び出し側の ctx が渡されること", func(t *testing.T) {
+	t.Run("operation receives caller ctx", func(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "marker")
 
@@ -488,7 +488,7 @@ func TestRunCtx(t *testing.T) {
 		}
 	})
 
-	t.Run("操作が ctx を監視していればリトライ中に中断できること", func(t *testing.T) {
+	t.Run("ctx-aware operation stops during retry", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			cancelCtx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -515,13 +515,13 @@ func TestRunCtx(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
+	t.Run("failure: nil Operation errors immediately", func(t *testing.T) {
 		if err := retry.RunCtx(context.Background(), nil); !errors.Is(err, retry.ErrNilOperation) {
 			t.Errorf("want ErrNilOperation, got: %v", err)
 		}
 	})
 
-	t.Run("nil context は Background として操作に渡されること", func(t *testing.T) {
+	t.Run("nil context is passed as Background", func(t *testing.T) {
 		var nilCtx context.Context
 		err := retry.RunCtx(nilCtx, func(ctx context.Context) error {
 			if ctx == nil {
@@ -536,7 +536,7 @@ func TestRunCtx(t *testing.T) {
 }
 
 func TestRunValueCtx(t *testing.T) {
-	t.Run("リトライ後に値を返せること", func(t *testing.T) {
+	t.Run("returns value after retry", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			got, err := retry.RunValueCtx(context.Background(), func(ctx context.Context) (int, error) {
@@ -556,7 +556,7 @@ func TestRunValueCtx(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
+	t.Run("failure: nil Operation errors immediately", func(t *testing.T) {
 		_, err := retry.RunValueCtx[int](context.Background(), nil)
 		if !errors.Is(err, retry.ErrNilOperation) {
 			t.Errorf("want ErrNilOperation, got: %v", err)
@@ -567,7 +567,7 @@ func TestRunValueCtx(t *testing.T) {
 func TestRunValue(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("成功時に値を返すこと", func(t *testing.T) {
+	t.Run("returns value on success", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			got, err := retry.RunValue(ctx, func() (string, error) {
@@ -587,7 +587,7 @@ func TestRunValue(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗時はゼロ値とエラーを返すこと", func(t *testing.T) {
+	t.Run("returns zero value and error on failure", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			got, err := retry.RunValue(ctx, func() (int, error) {
 				return 0, errors.New("boom")
@@ -602,7 +602,7 @@ func TestRunValue(t *testing.T) {
 		})
 	})
 
-	t.Run("失敗: nil Operation は即座にエラーになること", func(t *testing.T) {
+	t.Run("failure: nil Operation errors immediately", func(t *testing.T) {
 		_, err := retry.RunValue[int](ctx, nil)
 		if !errors.Is(err, retry.ErrNilOperation) {
 			t.Errorf("want ErrNilOperation, got: %v", err)

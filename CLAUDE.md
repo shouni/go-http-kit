@@ -14,7 +14,7 @@ go vet ./...                        # vet
 gofmt -l .                          # check formatting (CI fails if output is non-empty); use `gofmt -w .` to fix
 go test -race ./...                 # full test suite, matches CI
 go test -race ./httpkit/... -run TestName   # run a single test
-go test -race ./retry -run 'TestRun/成功'    # retry package alone (subtest names are Japanese)
+go test -race ./retry -run 'TestRun/success'   # retry package alone (spaces in subtest names become underscores)
 golangci-lint run                   # lint (config in .golangci.yml; CI uses the shared workflow's pin)
 govulncheck ./...                   # vulnerability scan (also runs in CI)
 ```
@@ -82,5 +82,5 @@ Tests mix black-box (`package httpkit_test`, e.g. `client_test.go`, `request_tes
 
 ## Conventions
 
-- Comments, doc comments, and error/log/panic messages are in English (moved from Japanese on 2026-11-10); do not mix Japanese back in. Error strings follow Go style: lowercase, no trailing punctuation (ST1005). Japanese stays only where it is data — test fixtures, and the existing subtest names.
+- Comments, doc comments, and error/log/panic messages are in English (moved from Japanese on 2026-11-10); do not mix Japanese back in. Error strings follow Go style: lowercase, no trailing punctuation (ST1005). Subtest names are English too (moved 2026-11-10). Japanese stays only where it is data — test fixtures.
 - `README.md` is in English and `README.ja.md` is its Japanese version; update the two together.

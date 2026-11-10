@@ -98,10 +98,10 @@ func TestClientTimeout(t *testing.T) {
 		client *Client
 		want   time.Duration
 	}{
-		{"未指定なら既定値", New(), DefaultHTTPTimeout},
-		{"指定した値を使う", New(WithTimeout(3 * time.Second)), 3 * time.Second},
-		{"0 は既定値に落ちる", New(WithTimeout(0)), DefaultHTTPTimeout},
-		{"負の値も既定値に落ちる", New(WithTimeout(-1 * time.Second)), DefaultHTTPTimeout},
+		{"unset uses default", New(), DefaultHTTPTimeout},
+		{"uses given value", New(WithTimeout(3 * time.Second)), 3 * time.Second},
+		{"zero falls back to default", New(WithTimeout(0)), DefaultHTTPTimeout},
+		{"negative falls back to default", New(WithTimeout(-1 * time.Second)), DefaultHTTPTimeout},
 	}
 
 	for _, tc := range testCases {

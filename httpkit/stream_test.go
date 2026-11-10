@@ -45,7 +45,7 @@ func TestReadStream(t *testing.T) {
 
 	c := newTestClient(server)
 
-	t.Run("正常系: ストリームが正しく処理される", func(t *testing.T) {
+	t.Run("success: stream is processed", func(t *testing.T) {
 		err := c.ReadStream(context.Background(), server.URL, func(rc io.Reader) error {
 			data, err := io.ReadAll(rc)
 			if err != nil {
@@ -62,7 +62,7 @@ func TestReadStream(t *testing.T) {
 		}
 	})
 
-	t.Run("異常系: サーバーが500エラーを返す", func(t *testing.T) {
+	t.Run("failure: server returns 500", func(t *testing.T) {
 		server500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("server error"))

@@ -51,7 +51,7 @@ func TestClient_Get_RetriesAndSecurity(t *testing.T) {
 		}
 	})
 
-	t.Run("ContentTypeとボディを取得できる", func(t *testing.T) {
+	t.Run("returns content type and body", func(t *testing.T) {
 		mock := &MockDoer{
 			Responses: []*http.Response{
 				{
